@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Ajax Alarmcentrale</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>">
+</head>
+<body>
+
+<div id="login" class="login hidden">
+  <form class="login-card" id="login-form">
+    <h1>Alarmcentrale</h1>
+    <p class="muted" id="login-hint">Log in om verder te gaan.</p>
+    <label>Gebruikersnaam<input name="username" autocomplete="username" required autofocus></label>
+    <label>Wachtwoord<input name="password" type="password" autocomplete="current-password" required></label>
+    <button type="submit">Inloggen</button>
+    <p class="error hidden" id="login-error"></p>
+  </form>
+</div>
+
+<div id="app" class="hidden">
+  <header>
+    <h1><span class="shield">🛡️</span> Alarmcentrale</h1>
+    <div class="header-right">
+      <span id="connection" class="pill pill-muted">verbinden…</span>
+      <button class="link" id="logout">Uitloggen</button>
+    </div>
+  </header>
+
+  <div id="banners"></div>
+
+  <section class="tiles" id="tiles"></section>
+
+  <section class="panel" id="alarm-panel" hidden>
+    <div class="panel-head">
+      <h2>Openstaande alarmen</h2>
+      <button id="ack-all" class="danger">Alles bevestigen</button>
+    </div>
+    <p class="muted small">Bevestigen stopt het herhaald bellen.</p>
+    <div id="alarm-list"></div>
+  </section>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="log">Logboek</button>
+    <button class="tab" data-tab="test">Belpad</button>
+    <button class="tab" data-tab="diag">Diagnostiek</button>
+  </nav>
+
+  <section class="panel tab-panel" data-panel="log">
+    <div class="filters">
+      <select id="filter-severity">
+        <option value="">Alle ernst</option>
+        <option value="alarm">Alarm</option>
+        <option value="trouble">Storing</option>
+        <option value="restore">Herstel</option>
+        <option value="info">Info</option>
+        <option value="heartbeat">Hartslag</option>
+        <option value="unknown">Onbekend</option>
+      </select>
+      <select id="filter-category"><option value="">Alle categorieën</option></select>
+      <label class="check"><input type="checkbox" id="filter-heartbeat"> Hartslagen tonen</label>
+      <button id="refresh">Vernieuwen</button>
+      <span class="muted small" id="log-count"></span>
+    </div>
+    <div id="events"></div>
+    <button id="load-more" class="link">Meer laden</button>
+  </section>
+
+  <section class="panel tab-panel hidden" data-panel="test">
+    <h2>Werkt het bellen nog?</h2>
+    <p class="muted">
+      Rinkelen op Element X loopt via een Matrix-specificatie die nog niet vast
+      ligt, en op Android komen oproepen soms niet of te laat aan. Een belpad
+      dat stilletjes kapot gaat merk je pas als het misgaat — tenzij je het
+      regelmatig test.
+    </p>
+    <div id="selftest-status"></div>
+    <div class="row">
+      <button id="test-ring">Testoproep versturen</button>
+      <button id="test-ack" class="secondary">Ik heb hem gehoord</button>
+    </div>
+    <p class="muted small">
+      Verstuur de testoproep en bevestig hier zodra je telefoon daadwerkelijk
+      is gegaan. Blijft de bevestiging uit, dan slaat het dashboard alarm.
+    </p>
+  </section>
+
+  <section class="panel tab-panel hidden" data-panel="diag">
+    <h2>Diagnostiek</h2>
+    <div id="diag-summary"></div>
+    <h3>Laatste ruwe berichten</h3>
+    <p class="muted small">
+      Ook geweigerde berichten staan hier. Komt er niets binnen, controleer dan
+      of het objectnummer en de encryptiesleutel in de Ajax-app overeenkomen.
+    </p>
+    <div id="raw-frames"></div>
+  </section>
+
+  <footer class="muted small">
+    Ajax Alarmcentrale · tijden in de tijdzone van dit apparaat
+  </footer>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

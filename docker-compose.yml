@@ -1,0 +1,43 @@
+services:
+  ajaxcentral:
+    build: .
+    image: ajaxcentral:latest
+    container_name: ajaxcentral
+    restart: unless-stopped
+
+    ports:
+      # De poort waar de Ajax hub naartoe meldt. Moet overeenkomen met wat je
+      # in de Ajax-app onder Meldkamer invult.
+      - "10000:10000/tcp"
+      - "10000:10000/udp"
+      # Het dashboard.
+      - "8080:8080"
+
+    volumes:
+      # De database blijft buiten de container staan, zodat het logboek een
+      # herbouw of update overleeft.
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+
+    env_file:
+      - .env
+
+    environment:
+      TZ: Europe/Amsterdam
+
+    healthcheck:
+      # Het inlogscherm is bereikbaar zonder sessie; genoeg om te zien of de
+      # applicatie nog reageert.
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/session')"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+    logging:
+      # Zonder deze grens vult het logboek op termijn de SD-kaart van de Pi.
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

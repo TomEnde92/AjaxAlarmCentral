@@ -1,0 +1,43 @@
+# systemd-unit voor wie liever geen Docker op de Pi draait.
+#
+#   sudo cp deploy/ajaxcentral.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ajaxcentral
+#   journalctl -u ajaxcentral -f
+
+[Unit]
+Description=Ajax Alarmcentrale
+Documentation=https://github.com/TomEnde92/AjaxAlarmCentral
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ajax
+Group=ajax
+WorkingDirectory=/opt/ajaxcentral
+EnvironmentFile=/opt/ajaxcentral/.env
+ExecStart=/opt/ajaxcentral/.venv/bin/python -m ajaxcentral.main
+
+# Altijd opnieuw starten: een alarmcentrale die na een fout blijft liggen is
+# gevaarlijker dan een die af en toe herstart.
+Restart=always
+RestartSec=10
+
+# De centrale schrijft alleen in de eigen datamap en heeft verder nergens
+# toegang toe nodig.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/ajaxcentral/data
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

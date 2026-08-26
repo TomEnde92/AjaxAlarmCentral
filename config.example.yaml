@@ -1,0 +1,162 @@
+# Ajax Alarmcentrale — voorbeeldconfiguratie.
+# Kopieer naar config.yaml en pas aan. Secrets horen NIET hier maar in .env.
+
+# Tijdzone voor de tijdstippen in Matrix-berichten. Het dashboard gebruikt de
+# tijdzone van je browser en trekt zich hier niets van aan.
+timezone: "Europe/Amsterdam"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ontvangst van de Ajax hub (SIA DC-09)
+#
+# Stel in de Ajax-app in: Space-instellingen (tandwiel) → Beveiligingsbedrijven
+# → Meldkamer. Protocol "SIA DC-09 (SIA-DCS)", IP = het adres van deze Pi,
+# poort = de poort hieronder, objectnummer = account_id hieronder.
+# ─────────────────────────────────────────────────────────────────────────────
+sia:
+  host: "0.0.0.0"
+  port: 10000
+  protocol: tcp            # tcp of udp — moet overeenkomen met de hub
+  account_id: "AA01"       # "Objectnummer" in de Ajax-app, 3-16 hex-tekens
+  # De encryptiesleutel staat in .env als AJAXCENTRAL_SIA_KEY.
+
+  # Het ping-interval dat je in de Ajax-app hebt ingesteld, in seconden.
+  ping_interval_seconds: 60
+  # De hub geldt als offline na ping_interval × deze factor zonder enig bericht.
+  # Lager = sneller alarm bij sabotage, maar meer kans op vals alarm.
+  offline_factor: 2.5
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Namen. Zonder deze tabel toont het dashboard "apparaat 12" in plaats van
+# "Voordeur". De sleutels zijn de ID's zoals ze in het logboek verschijnen —
+# start eerst zonder namen, kijk in Diagnostiek welke ID's binnenkomen, en
+# vul ze daarna hier in.
+# ─────────────────────────────────────────────────────────────────────────────
+devices:
+  "01": "Voordeur"
+  "02": "Achterdeur"
+  "03": "Bewegingsmelder woonkamer"
+  "04": "Rookmelder overloop"
+
+partitions:
+  "1": "Begane grond"
+  "2": "Verdieping"
+
+# Gebruikers. Bij in- en uitschakelen stuurt de hub geen zone maar het nummer
+# van de persoon die het deed, dus hiermee wordt "Uitgeschakeld door gebruiker
+# 02" gewoon "Uitgeschakeld door Lisa".
+users:
+  "01": "Tom"
+  "02": "Lisa"
+
+database:
+  path: "data/ajaxcentral.db"
+  # Events ouder dan dit worden opgeruimd. 0 = nooit opruimen.
+  retention_days: 730
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Web-dashboard. Gebruikersnaam hier, wachtwoord-hash en sessiesleutel in .env.
+# ─────────────────────────────────────────────────────────────────────────────
+web:
+  host: "0.0.0.0"
+  port: 8080
+  username: "admin"
+  # Zet op de externe URL van het dashboard, zodat links in Matrix-berichten
+  # aanklikbaar zijn vanaf je telefoon.
+  base_url: "http://192.168.1.50:8080"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Matrix: tekstmelding + rinkelende oproep
+#
+# Belangrijk: gebruik een ONVERSLEUTELDE 1-op-1 room. Versleutelde rooms geven
+# problemen met push-notificaties, en zonder push rinkelt je telefoon niet.
+# ─────────────────────────────────────────────────────────────────────────────
+matrix:
+  enabled: true
+  homeserver: "https://matrix.example.org"
+  user_id: "@alarmbot:example.org"      # het bot-account dat stuurt
+  room_id: "!abcdefgh:example.org"      # de alarm-room
+  target_user_id: "@tom:example.org"    # jouw account — wordt ge-mentioned
+
+  ring:
+    enabled: true
+
+    # Welke payload-varianten worden verstuurd. MSC4075 is nog niet stabiel en
+    # verschillende Element X-builds herkennen verschillende event-types, dus
+    # standaard sturen we ze allebei. Gebruik tools/ringtest.py om te bepalen
+    # welke variant jouw toestel daadwerkelijk laat rinkelen, en houd daarna
+    # alleen die over — dat scheelt dubbele meldingen.
+    #
+    # Beschikbaar: rtc-notification, rtc-notification-unstable, call-notify-legacy
+    variants:
+      - rtc-notification
+      - rtc-notification-unstable
+      - call-notify-legacy
+
+    # Schrijf een m.rtc.member state-event zodat er een "actieve" call-sessie
+    # bestaat. Zonder dit negeren sommige clients de ring. Zet uit als
+    # ringtest.py laat zien dat het bij jou ook zonder werkt.
+    with_member_state: true
+
+    lifetime_ms: 45000       # hoe lang de client mag blijven rinkelen
+    intent: "voice"          # voice of video
+
+    # Welke events daadwerkelijk bellen. Alles wat hier niet aan voldoet
+    # levert alleen een tekstmelding op. Let op: alleen events met ernst
+    # "alarm" bellen; een storing in een van deze categorieën niet.
+    #
+    # "gas" en "heat" staan hier bewust naast "fire": een Ajax FireProtect Plus
+    # meldt rook als FA, koolmonoxide als GA en hitte als KA. Wie alleen "fire"
+    # laat bellen, mist twee derde van wat diezelfde melder detecteert.
+    #
+    # "supervision" is de zelfgemaakte melding dat de hub niet meer reageert —
+    # stroomuitval of een doorgeknipte kabel. Haal die er niet uit.
+    #
+    # Alle categorieen: burglary, fire, gas, heat, water, panic, medical,
+    # tamper, arming, power, battery, rf, communication, supervision, access,
+    # test, config, system, unknown
+    categories: ["burglary", "fire", "gas", "heat", "panic", "medical", "supervision"]
+
+    # Escalatie: opnieuw bellen tot je in het dashboard bevestigt.
+    retry_interval_seconds: 60
+    max_attempts: 5
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Filters voor tekstmeldingen. Let op: deze filters raken NOOIT severity
+# "alarm" — een inbraak- of brandmelding wordt nooit onderdrukt.
+# ─────────────────────────────────────────────────────────────────────────────
+notifications:
+  min_severity: "trouble"        # info, heartbeat, restore, trouble, alarm, unknown
+  dedupe_window_seconds: 30      # identiek event binnen dit venster = één melding
+
+  quiet_hours:
+    enabled: false
+    start: "23:00"
+    end: "07:00"
+    # Wat er tijdens stille uren nog doorkomt. "alarm" staat er altijd bij,
+    # ook als je hem hier weghaalt.
+    allow_severities: ["alarm"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Zelftest. Belt op een vast moment om te bewijzen dat de hele keten tot je
+# telefoon werkt. Als de testring niet binnen ack_deadline_minutes bevestigd
+# is, zet het dashboard een waarschuwing.
+# ─────────────────────────────────────────────────────────────────────────────
+selftest:
+  enabled: true
+  weekday: 1                 # 0 = maandag ... 6 = zondag
+  hour: 14
+  minute: 0
+  ack_deadline_minutes: 30
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MQTT / Home Assistant
+# ─────────────────────────────────────────────────────────────────────────────
+mqtt:
+  enabled: false
+  host: "192.168.1.10"
+  port: 1883
+  base_topic: "ajaxcentral"
+  # Publiceert HA MQTT Discovery configs, zodat alles vanzelf in Home Assistant
+  # verschijnt zonder handmatige YAML.
+  discovery: true
+  discovery_prefix: "homeassistant"

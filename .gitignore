@@ -1,0 +1,24 @@
+# Secrets — nooit committen
+.env
+
+# Data
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Lokale config (config.example.yaml is het sjabloon)
+config.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
