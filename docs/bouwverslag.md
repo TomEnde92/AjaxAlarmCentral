@@ -319,6 +319,21 @@ Eerlijkheidshalve, want het zijn geen kleinigheden:
 
 ---
 
+## Aanvulling: geautomatiseerde installatie
+
+Na oplevering is `deploy/install.sh` toegevoegd: een script dat op een verse
+Raspberry Pi OS Lite Docker installeert, de repo clonet, `config.yaml` en
+`.env` aanmaakt, de encryptie- en sessiesleutel genereert, eenmalig om een
+dashboard-wachtwoord vraagt — gehasht via de al gebouwde image, om de
+hash-logica niet in bash te dupliceren — en de centrale opstart.
+
+Dit verandert niets aan de eerder genoemde beperking dat de Docker-build in
+deze omgeving niet is uitgevoerd: er draaide geen Docker-daemon om tegen te
+testen. Het script maakt die eerste `docker compose build` op echte
+Pi-hardware wel de allereerste stap in plaats van een losse handeling later,
+zodat een probleem daarin meteen zichtbaar is in plaats van pas bij het
+handmatig doorlopen van de installatie-instructies.
+
 ## Cijfers
 
 | Onderdeel | Omvang |

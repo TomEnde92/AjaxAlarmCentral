@@ -40,6 +40,30 @@ Ajax Hub ──SIA DC-09 (TCP/UDP, AES-128)──► Raspberry Pi
 
 ## Installatie
 
+### Automatisch (aanbevolen)
+
+Op een verse Raspberry Pi OS Lite (64-bit) installeert dit script Docker,
+clonet het de repo, maakt `config.yaml` en `.env` aan, genereert de
+encryptiesleutel en de sessiesleutel, vraagt eenmalig om een dashboard-
+wachtwoord en start de centrale op:
+
+```bash
+git clone https://github.com/TomEnde92/AjaxAlarmCentral.git
+cd AjaxAlarmCentral
+bash deploy/install.sh
+```
+
+Het script is veilig om opnieuw te draaien: een bestaande `config.yaml` of
+`.env` wordt nooit overschreven, alleen aangevuld wat ontbreekt. Aan het eind
+toont het precies wat je in de Ajax-app moet invullen (IP, poort, objectnummer,
+encryptiesleutel).
+
+Wat het **niet** voor je doet: de namen van je melders in `config.yaml` zetten,
+en het bellen via Matrix instellen — dat laatste vraagt om een bewuste
+afweging, zie [Het bellen instellen](#het-bellen-instellen) hieronder.
+
+### Handmatig
+
 ```bash
 git clone https://github.com/TomEnde92/AjaxAlarmCentral.git
 cd AjaxAlarmCentral
@@ -50,8 +74,12 @@ cp .env.example .env
 Genereer de twee geheimen voor het dashboard:
 
 ```bash
-# Wachtwoord-hash
+# Wachtwoord-hash — met Docker:
+docker compose build
+docker compose run --rm --no-deps --entrypoint python ajaxcentral -m ajaxcentral.web.auth hash 'jouwwachtwoord'
+# of zonder Docker, in de venv die je hieronder aanmaakt:
 python -m ajaxcentral.web.auth hash 'jouwwachtwoord'
+
 # Sessiesleutel
 openssl rand -hex 32
 ```
@@ -60,14 +88,14 @@ Zet die in `.env`, samen met een zelfgekozen encryptiesleutel van **16, 24 of 32
 tekens** voor het SIA-verkeer. Pas daarna `config.yaml` aan: het IP van je Pi,
 de namen van je melders, en je Matrix-gegevens.
 
-### Draaien met Docker (aanbevolen)
+#### Draaien met Docker
 
 ```bash
 docker compose up -d
 docker compose logs -f
 ```
 
-### Draaien zonder Docker
+#### Draaien zonder Docker
 
 ```bash
 python -m venv .venv
