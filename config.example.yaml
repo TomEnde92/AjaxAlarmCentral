@@ -71,7 +71,11 @@ web:
 # problemen met push-notificaties, en zonder push rinkelt je telefoon niet.
 # ─────────────────────────────────────────────────────────────────────────────
 matrix:
-  enabled: true
+  # Laat dit op false staan totdat je AJAXCENTRAL_MATRIX_TOKEN in .env hebt
+  # gezet en de ring-payload met tools/ringtest.py hebt afgesteld (zie
+  # README, "Het bellen instellen"). Met enabled: true en geen token weigert
+  # de app te starten.
+  enabled: false
   homeserver: "https://matrix.example.org"
   user_id: "@alarmbot:example.org"      # het bot-account dat stuurt
   room_id: "!abcdefgh:example.org"      # de alarm-room

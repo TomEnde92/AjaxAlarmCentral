@@ -196,11 +196,14 @@ env_get() { grep -E "^${1}=" .env | head -1 | cut -d= -f2-; }
 
 env_set() {
   local key="$1" value="$2"
+  # Docker Compose interpoleert '$'-tekens in .env als variabelen (bv. de
+  # wachtwoord-hash pbkdf2_sha256$240000$<salt>$<digest>) — '$$' escapet dat.
+  local escaped="${value//\$/\$\$}"
   if grep -qE "^${key}=" .env; then
     # '|' als scheidingsteken: een sleutel of hash bevat geen pipe-teken.
-    sed -i "s|^${key}=.*|${key}=${value}|" .env
+    sed -i "s|^${key}=.*|${key}=${escaped}|" .env
   else
-    echo "${key}=${value}" >> .env
+    echo "${key}=${escaped}" >> .env
   fi
 }
 

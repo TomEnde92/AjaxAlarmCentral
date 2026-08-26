@@ -187,15 +187,21 @@ Ging je telefoon niet, probeer dan achtereenvolgens:
 3. zet accu-optimalisatie voor Element X uit (Android)
 4. controleer dat Element X op de achtergrond mag draaien en meldingen mag tonen
 
-### 4. Zet alleen de werkende variant in de config
+### 4. Zet Matrix aan en alleen de werkende variant
+
+`matrix.enabled` staat standaard op `false` — pas als je `AJAXCENTRAL_MATRIX_TOKEN`
+in `.env` hebt gezet en weet welke variant werkt, zet je hem aan:
 
 ```yaml
 matrix:
+  enabled: true
   ring:
     variants:
       - rtc-notification
     with_member_state: true
 ```
+
+Daarna `docker compose up -d` om de nieuwe config te laden.
 
 Meerdere varianten tegelijk laten staan werkt ook, maar levert bij een echt
 alarm dubbele meldingen op.
