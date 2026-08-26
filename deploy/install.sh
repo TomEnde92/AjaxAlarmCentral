@@ -196,14 +196,19 @@ env_get() { grep -E "^${1}=" .env | head -1 | cut -d= -f2-; }
 
 env_set() {
   local key="$1" value="$2"
-  # Docker Compose interpoleert '$'-tekens in .env als variabelen (bv. de
-  # wachtwoord-hash pbkdf2_sha256$240000$<salt>$<digest>) — '$$' escapet dat.
-  local escaped="${value//\$/\$\$}"
+  # Enkele aanhalingstekens: Docker Compose interpoleert '$'-tekens in .env
+  # als variabelen (bv. de wachtwoord-hash pbkdf2_sha256$240000$<salt>$<digest>)
+  # behalve binnen enkele quotes — dat is de gedocumenteerde manier om dat uit
+  # te zetten. ('$$' lijkt te werken voor interpolatie in het compose-bestand
+  # zelf, maar niet betrouwbaar voor waarden die via env_file: de container in
+  # gaan.) Een letterlijk quote-teken komt in onze secrets niet voor, maar we
+  # escapen 'm defensief mocht dat ooit veranderen.
+  local quoted="${value//\'/\'\\\'\'}"
   if grep -qE "^${key}=" .env; then
     # '|' als scheidingsteken: een sleutel of hash bevat geen pipe-teken.
-    sed -i "s|^${key}=.*|${key}=${escaped}|" .env
+    sed -i "s|^${key}=.*|${key}='${quoted}'|" .env
   else
-    echo "${key}=${escaped}" >> .env
+    echo "${key}='${quoted}'" >> .env
   fi
 }
 
