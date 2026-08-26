@@ -288,8 +288,48 @@ blijven tonen alsof alles nog werkt.
 - **Het dashboard staat achter een wachtwoord**, ook op je eigen netwerk: het
   toont of je huis is ingeschakeld en wanneer er niemand thuis was.
 - **Zet de centrale niet open op het internet.** Wil je hem van buitenaf
-  bereiken, gebruik dan een VPN of Tailscale.
+  bereiken, gebruik dan een VPN of Tailscale (zie hieronder).
 - `.env` staat in `.gitignore` en hoort daar te blijven.
+
+### Op afstand: Tailscale
+
+Het dashboard luistert al op `0.0.0.0:8080` en `docker-compose.yml` publiceert
+die poort op alle netwerkinterfaces van de Pi — dus zodra de Pi in je tailnet
+zit, is er verder niets in deze repo dat je hoeft aan te passen.
+
+1. Installeer Tailscale op de Pi en log in:
+   ```bash
+   curl -fsSL https://tailscale.com/install.sh | sh
+   sudo tailscale up
+   ```
+   Dat tweede commando geeft een link; open die eenmalig in een browser om de
+   Pi aan je tailnet te koppelen.
+2. Zoek het adres van de Pi op:
+   ```bash
+   tailscale ip -4
+   ```
+   Of gebruik de MagicDNS-naam (`tailscale status` toont die), bijvoorbeeld
+   `http://raspberrypi.jouw-tailnet.ts.net:8080`.
+3. Installeer Tailscale ook op je telefoon/laptop en log in met hetzelfde
+   account. Daarna is het dashboard bereikbaar op dat adres, van overal.
+
+Het wachtwoord van het dashboard blijft de enige toegangscontrole voor de
+webinterface zelf; Tailscale zorgt alleen dat je er via een versleuteld,
+geauthenticeerd netwerk bij kunt zonder poort 8080 op je router open te zetten.
+
+Wil je dat de link in Matrix-berichten ook van buitenshuis werkt, zet dan
+`web.base_url` in `config.yaml` op het Tailscale-adres in plaats van het
+LAN-IP, en herstart met `docker compose up -d`.
+
+Voor een nettere `https://`-link zonder poortnummer kan `tailscale serve`
+gebruikt worden — dat zet een automatisch cert op en proxyt naar de
+container:
+```bash
+sudo tailscale serve --bg 8080
+```
+Dat maakt het dashboard bereikbaar op `https://raspberrypi.jouw-tailnet.ts.net`
+(alleen binnen je tailnet, niet publiek — gebruik `tailscale funnel` niet
+tenzij je het bewust publiek wilt maken).
 
 ---
 
