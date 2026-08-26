@@ -296,6 +296,12 @@ Ajax-systemen is getest. Wat hier gebouwd is, is de laag daarboven.
 
 ---
 
+## Verder lezen
+
+[`docs/bouwverslag.md`](docs/bouwverslag.md) beschrijft welke keuzes er in het
+ontwerp gemaakt zijn en waarom, wat er tijdens het bouwen aan het licht kwam, en
+wat er wel en niet geverifieerd is.
+
 ## Bronnen
 
 - [Ajax: hub rechtstreeks op de CMS via SIA DC-09](https://support.ajax.systems/en/how-to-use-sia-for-cms-connection/)
