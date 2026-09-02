@@ -36,6 +36,7 @@ def config(tmp_path: Path) -> Config:
             offline_factor=2.0,
         ),
         devices={"01": "Voordeur", "03": "Bewegingsmelder", "04": "Rookmelder"},
+        device_types={"01": "burglary", "04": "fire"},
         partitions={"1": "Begane grond", "2": "Verdieping"},
         users={"01": "Tom", "02": "Lisa"},
         database=DatabaseConfig(path=tmp_path / "test.db"),

@@ -79,6 +79,8 @@ def test_onderwerp_scheidt_zone_van_gebruiker() -> None:
     assert describe("BA").subject == SUBJECT_DEVICE
     assert describe("CL").subject == SUBJECT_USER
     assert describe("OP").subject == SUBJECT_USER
+    # Ajax wijkt hier af van de SIA-tabel; zie _AJAX_SUBJECT_OVERRIDES.
+    assert describe("NL").subject == SUBJECT_USER
     assert describe("RP").subject == SUBJECT_NONE
     # "Dealer ID" verwijst nergens naar; zo'n nummer mag geen apparaatnaam krijgen.
     assert describe("DU").subject == SUBJECT_NONE

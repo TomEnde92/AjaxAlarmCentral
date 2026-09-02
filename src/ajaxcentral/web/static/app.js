@@ -140,7 +140,9 @@ function renderTiles(status) {
       partition.name,
       partition.armed ? "Ingeschakeld" : "Uitgeschakeld",
       partition.changed_at ? `sinds ${formatTime(partition.changed_at)}` : "nog geen wijziging gezien",
-      "plain",
+      // Ingeschakeld krijgt een eigen kleur: in één oogopslag zien of het
+      // huis bewaakt wordt, zonder de tekst te hoeven lezen.
+      partition.armed ? "armed" : "plain",
     ));
   });
 }
@@ -170,11 +172,12 @@ function renderBanners(status) {
   const selftest = status.selftest;
   if (selftest && selftest.warning) {
     banners.append(banner("warn",
-      `Belpad onbevestigd: ${selftest.state}. Stuur een testoproep via het tabblad Belpad.`));
+      `Meldpad onbevestigd: ${selftest.state}. Stuur een testmelding via het tabblad Belpad.`));
   }
-  if (!status.matrix_enabled) {
-    banners.append(banner("warn",
-      "Matrix staat uit: er worden geen meldingen verstuurd en je telefoon gaat niet."));
+  if (!status.matrix_enabled && !status.pushover_enabled) {
+    banners.append(banner("bad",
+      "Geen meldkanaal aan (Matrix en Pushover staan uit): er worden geen meldingen " +
+      "verstuurd en je telefoon gaat niet bij een alarm."));
   }
 }
 
@@ -236,6 +239,7 @@ function eventNode(event, isNew) {
     bits.push(event.partition_name);
   }
   if (event.source === "internal") bits.push("door de centrale zelf gemeld");
+  if (event.source === "test") bits.push("testalarm vanuit het dashboard");
   if (event.acknowledged_at) bits.push(`bevestigd door ${event.acknowledged_by}`);
   node.append(el("div", "meta", bits.join(" · ")));
   return node;
@@ -286,19 +290,32 @@ function fillCategoryFilter() {
 
 /* ── Belpad ────────────────────────────────────────────────────────────── */
 
+const CHANNEL_NAMES = { pushover: "Pushover", matrix: "Matrix / Element X" };
+
+function renderChannels(status) {
+  const target = $("#channel-status");
+  target.textContent = "";
+  const channels = (status.channels || []).map((name) => CHANNEL_NAMES[name] || name);
+  if (channels.length === 0) {
+    target.append(banner("bad", "Geen meldkanaal aan. Zet Pushover of Matrix aan in config.yaml."));
+    return;
+  }
+  target.append(banner("ok", `Actief meldkanaal: ${channels.join(" en ")}`));
+}
+
 function renderSelftest(status) {
   const target = $("#selftest-status");
   target.textContent = "";
   const selftest = status.selftest;
   if (!selftest) {
-    target.append(banner("warn", "De zelftest staat uit of Matrix is niet geconfigureerd."));
+    target.append(banner("warn", "De zelftest staat uit of er is geen meldkanaal geconfigureerd."));
     return;
   }
   target.append(banner(selftest.warning ? "warn" : "ok", `Status: ${selftest.state}`));
   if (selftest.last) {
     const table = el("table", "kv");
     [
-      ["Laatste testoproep", formatTime(selftest.last.started_at)],
+      ["Laatste testmelding", formatTime(selftest.last.started_at)],
       ["Soort", selftest.last.kind === "manual" ? "handmatig" : "gepland"],
       ["Verstuurd", selftest.last.ring_status === "sent" ? "ja" : "nee"],
       ["Bevestigd", selftest.last.acknowledged_at ? formatTime(selftest.last.acknowledged_at) : "nog niet"],
@@ -315,7 +332,7 @@ function renderSelftest(status) {
 $("#test-ring").addEventListener("click", async (event) => {
   const button = event.target;
   button.disabled = true;
-  button.textContent = "Bezig met bellen…";
+  button.textContent = "Bezig met versturen…";
   try {
     const result = await api("/api/selftest/ring", { method: "POST" });
     button.textContent = result.ok ? "Verstuurd — gaat je telefoon?" : "Versturen mislukt";
@@ -323,12 +340,112 @@ $("#test-ring").addEventListener("click", async (event) => {
     button.textContent = `Mislukt: ${exc.message}`;
   }
   await refreshStatus();
-  setTimeout(() => { button.disabled = false; button.textContent = "Testoproep versturen"; }, 4000);
+  setTimeout(() => { button.disabled = false; button.textContent = "Testmelding versturen"; }, 4000);
 });
 
 $("#test-ack").addEventListener("click", async () => {
   await api("/api/selftest/acknowledge", { method: "POST" });
   await refreshStatus();
+});
+
+/* ── Testalarm ─────────────────────────────────────────────────────────── */
+
+const TEST_ALARM_LABELS = { fire: "Brandalarm", burglary: "Inbraakalarm" };
+
+function describeNotifications(event) {
+  const notes = event.notifications || [];
+  if (!notes.length) return "nog niets verstuurd";
+  const failed = notes.filter((n) => n.status === "failed");
+  const sent = notes.filter((n) => n.status === "sent");
+  const parts = [];
+  if (sent.length) parts.push(`verstuurd via ${[...new Set(sent.map((n) => CHANNEL_NAMES[n.channel] || n.channel))].join(", ")}`);
+  if (failed.length) parts.push(`mislukt via ${[...new Set(failed.map((n) => CHANNEL_NAMES[n.channel] || n.channel))].join(", ")}`);
+  if (notes.some((n) => n.status === "expired")) parts.push("verlopen op de telefoon");
+  return parts.join("; ") || "onbekend";
+}
+
+// Alleen melders van het gekozen soort: een rookmelder hoort niet bij een
+// inbraaktest. Apparaten zonder ingesteld soort blijven kiesbaar, met een hint
+// dat je ze in config.yaml onder device_types kunt indelen.
+function fillTestDevices() {
+  const kind = $("#test-alarm-kind").value;
+  const select = $("#test-alarm-device");
+  const current = select.value;
+  select.textContent = "";
+  const none = el("option", null, "Testmelder (geen apparaat)");
+  none.value = "";
+  select.append(none);
+  (state.testDevices || []).forEach((device) => {
+    if (device.type && device.type !== kind) return;
+    const hint = device.type ? "" : " — soort niet ingesteld";
+    const option = el("option", null, `${device.name} (${device.id})${hint}`);
+    option.value = device.id;
+    select.append(option);
+  });
+  select.value = [...select.options].some((o) => o.value === current) ? current : "";
+}
+
+$("#test-alarm-kind").addEventListener("change", fillTestDevices);
+
+async function renderTestAlarms() {
+  const data = await api("/api/selftest/alarms");
+
+  state.testDevices = data.devices || [];
+  fillTestDevices();
+
+  const target = $("#test-alarm-list");
+  target.textContent = "";
+  const alarms = data.alarms || [];
+  if (!alarms.length) {
+    target.append(el("p", "muted", "Nog geen testalarm gestuurd."));
+    return;
+  }
+  const table = el("table", "kv");
+  alarms.forEach((event) => {
+    const status = event.acknowledged_at
+      ? `bevestigd door ${event.acknowledged_by} om ${formatTime(event.acknowledged_at)}`
+      : "NOG NIET BEVESTIGD";
+    const row = el("tr");
+    row.append(
+      el("td", null, `${formatTime(event.received_at)} · ${event.summary}`),
+      el("td", null, `${describeNotifications(event)}; ${status}`),
+    );
+    table.append(row);
+  });
+  target.append(table);
+}
+
+$("#test-alarm").addEventListener("click", async (event) => {
+  const button = event.target;
+  const kind = $("#test-alarm-kind").value;
+  const label = TEST_ALARM_LABELS[kind] || kind;
+  const ok = window.confirm(
+    `${label} als test sturen? Je telefoon krijgt een echte noodmelding met sirene ` +
+    "die blijft herhalen tot je hem bevestigt.");
+  if (!ok) return;
+
+  const status = $("#test-alarm-status");
+  status.textContent = "";
+  button.disabled = true;
+  button.textContent = "Bezig met versturen…";
+  try {
+    const result = await api("/api/selftest/alarm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, device_id: $("#test-alarm-device").value || null }),
+    });
+    status.append(banner("warn",
+      `${result.event.summary} is onderweg. Bevestig hem in de Pushover-app of bij de open alarmen.`));
+  } catch (exc) {
+    status.append(banner("bad", `Testalarm mislukt: ${exc.message}`));
+  }
+  // De pijplijn verwerkt het event los van dit verzoek; even wachten zodat
+  // het logboek en de meldingen er al staan als de lijst ververst.
+  setTimeout(async () => {
+    await Promise.all([renderTestAlarms(), renderAlarms()]);
+    button.disabled = false;
+    button.textContent = "Testalarm sturen";
+  }, 1500);
 });
 
 /* ── Diagnostiek ───────────────────────────────────────────────────────── */
@@ -345,7 +462,9 @@ async function loadDiagnostics() {
     ["Objectnummer", data.sia.account_id],
     ["Versleuteld", data.sia.encrypted ? "ja" : "nee — sterk afgeraden"],
     ["Ping-interval", `${data.sia.ping_interval_seconds} sec`],
-    ["Belvarianten", (data.ring_variants || []).join(", ") || "geen"],
+    ["Meldkanalen", (data.channels || []).map((n) => CHANNEL_NAMES[n] || n).join(", ") || "geen"],
+    ...(data.ring_variants && data.ring_variants.length
+      ? [["Matrix-belvarianten", data.ring_variants.join(", ")]] : []),
     ["Berichten ontvangen", counters.events ?? 0],
     ["Waarvan geldig", counters.valid_events ?? 0],
     ["Afgekeurd op objectnummer", counters.error_account ?? 0],
@@ -395,6 +514,7 @@ document.querySelectorAll(".tab").forEach((tab) => {
       panel.classList.toggle("hidden", panel.dataset.panel !== tab.dataset.tab);
     });
     if (tab.dataset.tab === "diag") loadDiagnostics();
+    if (tab.dataset.tab === "test") renderTestAlarms();
   });
 });
 
@@ -420,6 +540,7 @@ function connect() {
         list.prepend(eventNode(payload.data, true));
       }
       if (payload.data.severity === "alarm") renderAlarms();
+      if (payload.data.source === "test") renderTestAlarms();
     }
     if (payload.status) { renderTiles(payload.status); renderBanners(payload.status); }
   });
@@ -445,6 +566,7 @@ async function refreshStatus() {
   const status = await api("/api/status");
   renderTiles(status);
   renderBanners(status);
+  renderChannels(status);
   renderSelftest(status);
   return status;
 }

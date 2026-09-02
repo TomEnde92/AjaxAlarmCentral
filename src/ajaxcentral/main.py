@@ -21,6 +21,7 @@ from .mqtt import MqttPublisher
 from .notify.base import NotifierRegistry
 from .notify.dispatcher import NotificationDispatcher
 from .notify.matrix.notifier import MatrixNotifier
+from .notify.pushover import PushoverNotifier
 from .pipeline import EventPipeline
 from .receiver import Receiver
 from .selftest import SelfTest
@@ -41,6 +42,8 @@ def setup_logging(level: str = "INFO") -> None:
     # pysiaalarm logt elk binnengekomen frame op debug; dat is bij normaal
     # gebruik alleen maar ruis.
     logging.getLogger("pysiaalarm").setLevel(logging.WARNING)
+    # httpx logt elk verzoek op INFO; met Pushover-polling is dat elke 20 seconden een regel.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 class _QuietServer(uvicorn.Server):
@@ -67,9 +70,10 @@ class Application:
         self.state = SystemState(config)
         self.pipeline = EventPipeline(config, self.db, self.bus, self.state)
         self.receiver = Receiver(config, self.pipeline.submit)
-        self.watchdog = Watchdog(config, self.state, self.pipeline)
+        self.watchdog = Watchdog(config, self.state, self.pipeline, db=self.db)
         self.registry = NotifierRegistry()
         self.matrix: MatrixNotifier | None = None
+        self.pushover: PushoverNotifier | None = None
         self.selftest: SelfTest | None = None
         self.mqtt: MqttPublisher | None = None
         self.dispatcher: NotificationDispatcher | None = None
@@ -86,15 +90,28 @@ class Application:
         # binnenkomend bericht overschreven worden door de oude geschiedenis.
         await self.state.restore_from_db(self.db)
 
+        ringers: list[MatrixNotifier | PushoverNotifier] = []
         if self.config.matrix.enabled:
             self.matrix = MatrixNotifier(self.config, self.db)
             await self.matrix.start()
             self.registry.register(self.matrix)
-            self.selftest = SelfTest(self.config, self.db, self.matrix)
+            ringers.append(self.matrix)
+        if self.config.pushover.enabled:
+            self.pushover = PushoverNotifier(
+                self.config, self.db, on_acknowledged=self._on_acknowledged
+            )
+            await self.pushover.start()
+            self.registry.register(self.pushover)
+            ringers.append(self.pushover)
+
+        if ringers:
+            self.selftest = SelfTest(self.config, self.db, ringers)
+            if self.pushover is not None:
+                self.pushover.on_selftest_acknowledged = self.selftest.acknowledge_latest
         else:
             _LOGGER.warning(
-                "Matrix staat uit in config: er gaan GEEN meldingen uit en je "
-                "telefoon gaat niet bij een alarm."
+                "Geen meldkanaal aan in config (matrix en pushover staan uit): er gaan "
+                "GEEN meldingen uit en je telefoon gaat niet bij een alarm."
             )
 
         self.dispatcher = NotificationDispatcher(
@@ -117,6 +134,8 @@ class Application:
         # een belronde. Een herstart mag een lopend alarm niet stilzetten.
         if self.matrix is not None:
             await self.matrix.escalation.resume_open_alarms()
+        if self.pushover is not None:
+            await self.pushover.resume_open_alarms()
 
         await self._start_web()
         _LOGGER.info("Alarmcentrale draait")
@@ -130,7 +149,8 @@ class Application:
             selftest=self.selftest,
             receiver=self.receiver,
             matrix=self.matrix,
-            on_acknowledge=(self.matrix.escalation.cancel_for if self.matrix is not None else None),
+            on_acknowledge=self._on_acknowledged,
+            submit=self.pipeline.submit,
         )
         app = create_app(context)
         server_config = uvicorn.Config(
@@ -143,6 +163,13 @@ class Application:
         self._server = _QuietServer(server_config)
         self._server_task = asyncio.create_task(self._server.serve(), name="web")
         _LOGGER.info("Dashboard op http://%s:%s", self.config.web.host, self.config.web.port)
+
+    def _on_acknowledged(self, event_id: int) -> None:
+        """Eén bevestiging, waar die ook vandaan komt, laat alle kanalen ophouden."""
+        if self.matrix is not None:
+            self.matrix.escalation.cancel_for(event_id)
+        if self.pushover is not None:
+            self.pushover.cancel_for(event_id)
 
     # ── Afsluiten ────────────────────────────────────────────────────────────
 

@@ -11,6 +11,7 @@ from typing import Any
 
 from ...config import Config
 from ...models import AlarmEvent
+from ..text import SEVERITY_LABELS, event_link, fact_lines
 
 _ICONS: dict[str, str] = {
     "alarm": "🚨",
@@ -19,15 +20,6 @@ _ICONS: dict[str, str] = {
     "info": "ℹ️",
     "heartbeat": "💓",
     "unknown": "❓",
-}
-
-_SEVERITY_LABELS: dict[str, str] = {
-    "alarm": "ALARM",
-    "trouble": "Storing",
-    "restore": "Herstel",
-    "info": "Info",
-    "heartbeat": "Hartslag",
-    "unknown": "Onbekend",
 }
 
 _COLOURS: dict[str, str] = {
@@ -40,31 +32,12 @@ _COLOURS: dict[str, str] = {
 }
 
 
-def _lines(alarm: AlarmEvent, config: Config) -> list[tuple[str, str]]:
-    """De feitenregels onder de kop, in volgorde van belang."""
-    local = config.to_local(alarm.event_at)
-    rows: list[tuple[str, str]] = [("Tijd", local.strftime("%d-%m-%Y %H:%M:%S"))]
-
-    if alarm.device_name != "systeem":
-        rows.append(("Apparaat", alarm.device_name))
-    if alarm.user_name:
-        rows.append(("Gebruiker", alarm.user_name))
-    if alarm.partition_name != "systeem":
-        rows.append(("Groep", alarm.partition_name))
-    rows.append(("Code", alarm.code))
-    if alarm.message and alarm.message != alarm.device_id:
-        rows.append(("Melding", alarm.message))
-    if alarm.source == "internal":
-        rows.append(("Bron", "de alarmcentrale zelf, niet de hub"))
-    return rows
-
-
 def build_message(alarm: AlarmEvent, config: Config) -> dict[str, Any]:
     """Bouw de inhoud van een m.room.message-event."""
     icon = _ICONS.get(alarm.severity, "•")
-    label = _SEVERITY_LABELS.get(alarm.severity, alarm.severity)
-    rows = _lines(alarm, config)
-    link = f"{config.web.base_url}/#event-{alarm.db_id}" if alarm.db_id else config.web.base_url
+    label = SEVERITY_LABELS.get(alarm.severity, alarm.severity)
+    rows = fact_lines(alarm, config)
+    link = event_link(alarm, config)
 
     plain = [f"{icon} {label}: {alarm.summary()}"]
     plain += [f"{name}: {value}" for name, value in rows]

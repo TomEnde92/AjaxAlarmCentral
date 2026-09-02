@@ -6,12 +6,18 @@ services:
     restart: unless-stopped
 
     ports:
+      # AJAXCENTRAL_BIND_ADDRESS in .env: het LAN-adres van de Pi. Docker
+      # publiceert poorten buiten ufw om, dus alleen dit adres voorkomt dat
+      # een port-forward of UPnP-regel in de router de centrale op internet
+      # zet. Leeg = alle interfaces. Geef de Pi wel een vast IP (DHCP-
+      # reservering), anders start de container niet na een adreswissel.
+      #
       # De poort waar de Ajax hub naartoe meldt. Moet overeenkomen met wat je
       # in de Ajax-app onder Meldkamer invult.
-      - "10000:10000/tcp"
-      - "10000:10000/udp"
+      - "${AJAXCENTRAL_BIND_ADDRESS:-0.0.0.0}:10000:10000/tcp"
+      - "${AJAXCENTRAL_BIND_ADDRESS:-0.0.0.0}:10000:10000/udp"
       # Het dashboard.
-      - "8080:8080"
+      - "${AJAXCENTRAL_BIND_ADDRESS:-0.0.0.0}:8080:8080"
 
     volumes:
       # De database blijft buiten de container staan, zodat het logboek een

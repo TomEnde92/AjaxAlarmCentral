@@ -6,7 +6,7 @@ import pytest
 from pysiaalarm import SIAAccount, SIAEvent
 
 from ajaxcentral.config import Config
-from ajaxcentral.normalize import internal_event, normalize
+from ajaxcentral.normalize import internal_event, normalize, simulated_alarm
 from conftest import TEST_ACCOUNT, TEST_KEY
 from fake_hub import adm_body, build_frame, null_body, sia_body
 
@@ -43,6 +43,16 @@ def test_inschakelen_noemt_de_persoon_niet_het_apparaat(config: Config) -> None:
     assert alarm.user_name == "Tom"
     assert alarm.device_id is None
     assert alarm.summary() == "Ingeschakeld door Tom"
+
+
+def test_nachtstand_noemt_de_persoon_niet_de_groep(config: Config) -> None:
+    """Ajax stuurt bij NL de gebruiker mee, al zegt de SIA-tabel 'Area number'."""
+    alarm = normalize(_sia("NL", "01", "1"), config)
+    assert alarm.user_id == "01"
+    assert alarm.device_id is None
+    assert alarm.partition_id == "1"
+    assert alarm.partition_name == "Begane grond"
+    assert alarm.summary() == "Nachtstand ingeschakeld door Tom"
 
 
 def test_onbekende_gebruiker_krijgt_nummer(config: Config) -> None:
@@ -99,3 +109,38 @@ def test_interne_events_zien_er_hetzelfde_uit(config: Config) -> None:
     assert alarm.category == "supervision"
     assert alarm.source == "internal"
     assert alarm.message == "geen ping in 150s"
+
+
+# ── Testalarm ────────────────────────────────────────────────────────────────
+
+
+def test_testalarm_is_een_echt_alarm_maar_herkenbaar(config: Config) -> None:
+    """Zelfde code, categorie en ernst als het echte alarm; alleen de titel verraadt de test."""
+    alarm = simulated_alarm("fire", config, device_id="04", by="tom")
+    assert alarm.code == "FA"
+    assert alarm.category == "fire"
+    assert alarm.severity == "alarm"
+    assert alarm.is_alarm
+    assert alarm.source == "test"
+    assert alarm.title == "Brandalarm (TEST)"
+    assert alarm.device_name == "Rookmelder"
+    assert alarm.summary() == "Brandalarm (TEST) — Rookmelder"
+    assert "tom" in str(alarm.message)
+
+
+def test_testalarm_inbraak_zonder_apparaat(config: Config) -> None:
+    alarm = simulated_alarm("burglary", config)
+    assert alarm.code == "BA"
+    assert alarm.category == "burglary"
+    assert alarm.device_id is None
+    assert alarm.summary() == "Inbraakalarm (TEST) — testmelder"
+
+
+def test_testalarm_is_geen_hubcontact(config: Config) -> None:
+    """Een testalarm mag de watchdog niet laten denken dat de hub leeft."""
+    assert simulated_alarm("fire", config).source != "hub"
+
+
+def test_onbekend_soort_testalarm(config: Config) -> None:
+    with pytest.raises(ValueError):
+        simulated_alarm("meteoriet", config)

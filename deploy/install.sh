@@ -175,6 +175,9 @@ else
   cp .env.example .env
   ok ".env aangemaakt vanuit het voorbeeld"
 fi
+# Hier staan de SIA-sleutel en de sessiesleutel in; niet leesbaar voor
+# andere gebruikers op de Pi.
+chmod 600 .env
 
 mkdir -p data
 

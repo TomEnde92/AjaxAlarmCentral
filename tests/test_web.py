@@ -185,3 +185,105 @@ async def test_zelftest_zonder_matrix_geeft_nette_fout(context: WebContext) -> N
     async with await _client(context) as client:
         await client.post("/api/login", json={"username": "admin", "password": PASSWORD})
         assert (await client.post("/api/selftest/ring")).status_code == 503
+
+
+# ── Testalarm ────────────────────────────────────────────────────────────────
+
+
+class _Ingeleverd(list[AlarmEvent]):
+    """Vervangt pipeline.submit: onthoudt wat de webapp zou inleveren."""
+
+    def __call__(self, alarm: AlarmEvent) -> None:
+        self.append(alarm)
+
+
+@pytest.fixture
+def context_met_kanaal(context: WebContext) -> WebContext:
+    """Een context alsof er een meldkanaal aan staat: zelftest plus pijplijn-invoer."""
+    from ajaxcentral.selftest import SelfTest
+
+    context.selftest = SelfTest(context.config, context.db, None)
+    context.submit = _Ingeleverd()
+    return context
+
+
+async def test_testalarm_zonder_meldkanaal_geeft_nette_fout(context: WebContext) -> None:
+    async with await _client(context) as client:
+        await client.post("/api/login", json={"username": "admin", "password": PASSWORD})
+        response = await client.post("/api/selftest/alarm", json={"kind": "fire"})
+        assert response.status_code == 503
+
+
+async def test_testalarm_gaat_de_pijplijn_in(context_met_kanaal: WebContext) -> None:
+    """Het testalarm volgt de echte route; de webapp bouwt alleen het event."""
+    context = context_met_kanaal
+    async with await _client(context) as client:
+        await client.post("/api/login", json={"username": "admin", "password": PASSWORD})
+        response = await client.post(
+            "/api/selftest/alarm", json={"kind": "burglary", "device_id": "01"}
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ok"] is True
+        assert body["event"]["summary"] == "Inbraakalarm (TEST) — Voordeur"
+
+    submitted = context.submit
+    assert len(submitted) == 1
+    alarm = submitted[0]
+    assert alarm.code == "BA"
+    assert alarm.severity == "alarm"
+    assert alarm.source == "test"
+    assert alarm.message == "Testalarm gestart door admin"
+
+
+async def test_testalarm_weigert_onzin(context_met_kanaal: WebContext) -> None:
+    context = context_met_kanaal
+    async with await _client(context) as client:
+        await client.post("/api/login", json={"username": "admin", "password": PASSWORD})
+        assert (
+            await client.post("/api/selftest/alarm", json={"kind": "meteoriet"})
+        ).status_code == 400
+        assert (
+            await client.post("/api/selftest/alarm", json={"kind": "fire", "device_id": "99"})
+        ).status_code == 400
+    assert context.submit == []
+
+
+async def test_testalarm_weigert_verkeerd_soort_melder(context_met_kanaal: WebContext) -> None:
+    """Een rookmelder die inbraak meldt bestaat niet; zo'n test bewijst niets."""
+    context = context_met_kanaal
+    async with await _client(context) as client:
+        await client.post("/api/login", json={"username": "admin", "password": PASSWORD})
+        wrong = await client.post(
+            "/api/selftest/alarm", json={"kind": "burglary", "device_id": "04"}
+        )
+        assert wrong.status_code == 400
+        assert "Rookmelder" in wrong.json()["detail"]
+        # Zonder ingesteld soort mag het wel; de rookmelder bij brand ook.
+        assert (
+            await client.post("/api/selftest/alarm", json={"kind": "fire", "device_id": "03"})
+        ).status_code == 200
+        assert (
+            await client.post("/api/selftest/alarm", json={"kind": "fire", "device_id": "04"})
+        ).status_code == 200
+    assert [alarm.device_id for alarm in context.submit] == ["03", "04"]
+
+
+async def test_lijst_van_testalarmen_toont_alleen_tests(context_met_kanaal: WebContext) -> None:
+    context = context_met_kanaal
+    await context.db.store_event(_alarm())  # echt alarm, hoort er niet bij
+    from ajaxcentral.normalize import simulated_alarm
+
+    test = simulated_alarm("fire", context.config, device_id="04", by="admin")
+    await context.db.store_event(test)
+    await context.db.log_notification(test.db_id, "pushover", "sent", test.summary())
+
+    async with await _client(context) as client:
+        await client.post("/api/login", json={"username": "admin", "password": PASSWORD})
+        data = (await client.get("/api/selftest/alarms")).json()
+        assert [event["code"] for event in data["alarms"]] == ["FA"]
+        assert data["alarms"][0]["source"] == "test"
+        assert data["alarms"][0]["notifications"][0]["channel"] == "pushover"
+        assert data["kinds"] == ["fire", "burglary"]
+        assert {"id": "04", "name": "Rookmelder", "type": "fire"} in data["devices"]
+        assert {"id": "03", "name": "Bewegingsmelder", "type": None} in data["devices"]

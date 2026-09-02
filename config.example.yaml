@@ -24,6 +24,11 @@ sia:
   # De hub geldt als offline na ping_interval × deze factor zonder enig bericht.
   # Lager = sneller alarm bij sabotage, maar meer kans op vals alarm.
   offline_factor: 2.5
+  # Blijft de hub weg en is het alarm niet bevestigd in het dashboard, dan
+  # wordt "Hub niet bereikbaar" na dit aantal seconden opnieuw gemeld, met een
+  # nieuwe belronde. Een uitval hoort te blijven piepen tot iemand hem ziet.
+  # 0 = alleen de eerste melding.
+  offline_repeat_seconds: 900
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Namen. Zonder deze tabel toont het dashboard "apparaat 12" in plaats van
@@ -36,6 +41,17 @@ devices:
   "02": "Achterdeur"
   "03": "Bewegingsmelder woonkamer"
   "04": "Rookmelder overloop"
+
+# Soort melder per apparaat. Bepaalt welke melders je bij een testalarm kunt
+# kiezen: rookmelders bij een brandtest, inbraakmelders bij een inbraaktest.
+# Soorten: fire, burglary, other (sirene, sleutelhanger, bedienpaneel: bij
+# geen enkele test te kiezen). Apparaten die hier niet staan blijven bij elke
+# test kiesbaar, met de hint "soort niet ingesteld".
+device_types:
+  "01": burglary
+  "02": burglary
+  "03": burglary
+  "04": fire
 
 partitions:
   "1": "Begane grond"
@@ -123,6 +139,26 @@ matrix:
     # Escalatie: opnieuw bellen tot je in het dashboard bevestigt.
     retry_interval_seconds: 60
     max_attempts: 5
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pushover: het eenvoudige alternatief voor Matrix. App op je telefoon, geen
+# homeserver, geen push-regels. Een alarm gaat als noodmelding: hard geluid dat
+# door Niet Storen heen gaat, herhaald tot je in de app op Bevestigen tikt. Die
+# bevestiging komt terug in het dashboard, en andersom stopt bevestigen in het
+# dashboard de telefoon. Storingen komen als gewoon bericht met hoge prioriteit.
+#
+# De sleutels horen in .env: AJAXCENTRAL_PUSHOVER_USER (je user key) en
+# AJAXCENTRAL_PUSHOVER_TOKEN (de API token van een eigen "application").
+# Mag naast Matrix aan staan; dan gaan beide.
+# ─────────────────────────────────────────────────────────────────────────────
+pushover:
+  enabled: false
+  # Welke alarmcategorieën een noodmelding geven; de rest is een gewoon bericht.
+  categories: ["burglary", "fire", "gas", "heat", "panic", "medical", "supervision"]
+  sound: "siren"           # zie pushover.net/api#sounds
+  retry_seconds: 30        # herhaal-interval op de telefoon (minimaal 30)
+  expire_seconds: 3600     # hoe lang Pushover blijft herhalen (maximaal 10800)
+  # device: "telefoon"     # leeg = alle toestellen van je account
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Filters voor tekstmeldingen. Let op: deze filters raken NOOIT severity

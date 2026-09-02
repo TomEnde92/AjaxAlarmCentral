@@ -111,6 +111,7 @@ class Database:
         device_id: str | None = None,
         partition_id: str | None = None,
         since: datetime | None = None,
+        source: str | None = None,
     ) -> Sequence[Event]:
         stmt = select(Event).order_by(Event.received_at.desc(), Event.id.desc())
         if severity:
@@ -125,6 +126,8 @@ class Database:
             stmt = stmt.where(Event.partition_id == partition_id)
         if since:
             stmt = stmt.where(Event.received_at >= since)
+        if source:
+            stmt = stmt.where(Event.source == source)
         stmt = stmt.limit(limit).offset(offset)
         async with self.session() as session:
             return (await session.execute(stmt)).scalars().all()

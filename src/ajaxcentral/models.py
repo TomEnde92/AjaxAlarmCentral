@@ -85,6 +85,32 @@ class AlarmEvent:
     #: Wordt gezet zodra het event is weggeschreven.
     db_id: int | None = None
 
+    @classmethod
+    def from_row(cls, row: Any) -> AlarmEvent:
+        """Terug van databaserij naar domeinobject, bv. om na een herstart te hervatten."""
+        return cls(
+            code=row.code,
+            category=row.category,
+            severity=row.severity,
+            title=row.title,
+            description=row.description,
+            source=row.source,
+            account=row.account,
+            device_id=row.device_id,
+            device_name=row.device_name,
+            partition_id=row.partition_id,
+            partition_name=row.partition_name,
+            user_id=row.user_id,
+            user_name=row.user_name,
+            zone=row.zone,
+            message=row.message,
+            raw=row.raw,
+            event_at=as_utc(row.event_at),
+            received_at=as_utc(row.received_at),
+            uid=row.uid,
+            db_id=row.id,
+        )
+
     @property
     def is_alarm(self) -> bool:
         return self.severity == "alarm"

@@ -81,18 +81,90 @@ async def test_watchdog_meldt_uitval_en_herstel(config: Config, db: Database) ->
 
     state.started_at = utcnow() - timedelta(seconds=300)
 
-    watchdog.check()
-    watchdog.check()  # tweede ronde mag geen tweede alarm opleveren
+    await watchdog.check()
+    await watchdog.check()  # tweede ronde mag geen tweede alarm opleveren
     assert pipeline._queue.qsize() == 1
     first = pipeline._queue.get_nowait()
     assert first.code == "HUBOFF"
     assert first.severity == "alarm"
 
     state.note_contact()
-    watchdog.check()
-    watchdog.check()
+    await watchdog.check()
+    await watchdog.check()
     assert pipeline._queue.qsize() == 1
     assert pipeline._queue.get_nowait().code == "HUBON"
+
+
+async def test_watchdog_herhaalt_tot_bevestiging(config: Config, db: Database) -> None:
+    """Eén gemiste belronde mag niet betekenen dat de uitval daarna stil blijft."""
+    from ajaxcentral.bus import EventBus
+
+    bus: EventBus[AlarmEvent] = EventBus()
+    state = SystemState(config)
+    pipeline = EventPipeline(config, db, bus, state)
+    config.sia.offline_repeat_seconds = 60
+    watchdog = Watchdog(config, state, pipeline, db=db)
+    state.started_at = utcnow() - timedelta(seconds=300)
+
+    await watchdog.check()
+    first = pipeline._queue.get_nowait()
+    assert first.code == "HUBOFF"
+    await db.store_event(first)  # wat de pijplijn normaal doet
+
+    # Binnen het interval: niets.
+    await watchdog.check()
+    assert pipeline._queue.qsize() == 0
+
+    # Interval verstreken, niet bevestigd: opnieuw melden.
+    watchdog._last_report_at = utcnow() - timedelta(seconds=61)
+    await watchdog.check()
+    repeat = pipeline._queue.get_nowait()
+    assert repeat.code == "HUBOFF"
+    assert "herhaling 1" in (repeat.message or "")
+    await db.store_event(repeat)
+
+    # Bevestigd in het dashboard: stil, ook al is het interval verstreken.
+    assert repeat.db_id is not None
+    await db.acknowledge(repeat.db_id, "tom")
+    watchdog._last_report_at = utcnow() - timedelta(seconds=61)
+    await watchdog.check()
+    assert pipeline._queue.qsize() == 0
+
+    # Hub terug: herstelmelding, en de teller begint bij een volgende uitval opnieuw.
+    state.note_contact()
+    await watchdog.check()
+    assert pipeline._queue.get_nowait().code == "HUBON"
+
+
+async def test_pijplijn_verspreidt_ook_als_opslaan_faalt(config: Config) -> None:
+    """Een volle SD-kaart mag geen stille alarmcentrale opleveren."""
+    from ajaxcentral.bus import EventBus
+
+    class KapotteDatabase:
+        async def store_event(self, alarm: AlarmEvent) -> int:
+            raise OSError("read-only file system")
+
+        async def unacknowledged_alarms(self) -> list[object]:
+            return []
+
+    bus: EventBus[AlarmEvent] = EventBus()
+    state = SystemState(config)
+    pipeline = EventPipeline(config, KapotteDatabase(), bus, state)  # type: ignore[arg-type]
+
+    async with bus.subscribe() as queue:
+        await pipeline.start()
+        pipeline.submit(_event("BA", "alarm", "burglary", device_id="01"))
+        pipeline.submit(_event("BA", "alarm", "burglary", device_id="03"))
+        await pipeline._queue.join()
+        await pipeline.stop()
+        codes = []
+        while not queue.empty():
+            codes.append(queue.get_nowait().code)
+
+    # Beide alarmen komen door, en precies één storingsmelding over de opslag
+    # (die sluit achteraan aan, want beide alarmen stonden al in de rij).
+    assert codes == ["BA", "BA", "DBFAIL"]
+    assert "system:systeem" in state.troubles
 
 
 async def test_status_overleeft_een_herstart(config: Config, db: Database) -> None:

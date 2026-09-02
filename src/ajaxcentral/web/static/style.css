@@ -94,6 +94,12 @@ header h1 { font-size: 1.25rem; margin: 0; letter-spacing: .01em; }
 .tile.warn  { border-left: 4px solid var(--trouble); }
 .tile.bad   { border-left: 4px solid var(--alarm); }
 .tile.plain { border-left: 4px solid var(--line); }
+.tile.armed {
+  border-left: 4px solid var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+}
+.tile.armed .value { color: var(--accent); }
 
 /* ── Panelen ──────────────────────────────────────────────────────────── */
 

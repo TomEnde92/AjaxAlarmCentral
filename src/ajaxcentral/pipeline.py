@@ -18,6 +18,7 @@ from .bus import EventBus
 from .config import Config
 from .db import Database
 from .models import AlarmEvent
+from .normalize import internal_event
 from .state import SystemState
 from .tasks import cancel_task
 
@@ -40,6 +41,8 @@ class EventPipeline:
         self._state = state
         self._queue: asyncio.Queue[AlarmEvent] = asyncio.Queue(maxsize=queue_size)
         self._task: asyncio.Task[None] | None = None
+        #: Eén DBFAIL-melding per storing, niet één per mislukt event.
+        self._storage_broken = False
 
     def submit(self, alarm: AlarmEvent) -> None:
         """Lever een event in. Mag vanuit elke context aangeroepen worden."""
@@ -80,9 +83,39 @@ class EventPipeline:
         # met een database-id, waarmee ze meldingen en belpogingen kunnen
         # koppelen. En mocht het proces hierna omvallen, dan staat het event
         # in elk geval in het logboek.
-        await self._db.store_event(alarm)
+        stored = await self._store(alarm)
         self._state.apply(alarm)
-        if alarm.severity == "alarm":
-            self._state.open_alarms = len(await self._db.unacknowledged_alarms())
+        if alarm.severity == "alarm" and stored:
+            try:
+                self._state.open_alarms = len(await self._db.unacknowledged_alarms())
+            except Exception:
+                _LOGGER.exception("Tellen van open alarmen mislukt")
         self._bus.publish(alarm)
         _LOGGER.info("[%s] %s", alarm.severity, alarm.summary())
+
+    async def _store(self, alarm: AlarmEvent) -> bool:
+        """Sla op; bij falen gaat het event tóch de deur uit.
+
+        Een volle of read-only SD-kaart is een van de gewoonste storingen op
+        een Pi. De hub heeft zijn ACK al gehad en biedt het event nooit meer
+        aan, dus een inbraakmelding die hier strandt is definitief weg. Dan
+        liever een melding zonder database-id (geen belronde-koppeling, geen
+        link in het bericht) dan helemaal geen melding — plus een aparte
+        storingsmelding zodat je weet dat de opslag kapot is.
+        """
+        try:
+            await self._db.store_event(alarm)
+        except Exception as exc:
+            _LOGGER.exception(
+                "Opslaan van event mislukt; wordt zonder database-id verspreid: %s",
+                alarm.summary(),
+            )
+            if not self._storage_broken:
+                self._storage_broken = True
+                detail = f"{type(exc).__name__}: {exc}"[:200]
+                self.submit(internal_event("DBFAIL", self._config, message=detail))
+            return False
+        if self._storage_broken:
+            self._storage_broken = False
+            self.submit(internal_event("DBOK", self._config))
+        return True

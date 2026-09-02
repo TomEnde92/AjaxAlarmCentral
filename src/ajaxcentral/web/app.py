@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -20,6 +21,7 @@ from ..bus import EventBus
 from ..config import Config
 from ..db import Database
 from ..models import AlarmEvent, utcnow
+from ..normalize import TEST_ALARM_KINDS, simulated_alarm
 from ..selftest import SelfTest
 from ..state import SystemState
 
@@ -28,6 +30,17 @@ _LOGGER = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
 SESSION_COOKIE = "ajaxcentral_session"
 SESSION_MAX_AGE = int(timedelta(days=30).total_seconds())
+
+
+#: Wat voor melder bij welk soort testalarm hoort, voor foutmeldingen.
+_KIND_DEVICE_LABELS = {"fire": "rookmelder", "burglary": "inbraakmelder"}
+
+
+class TestAlarmRequest(BaseModel):
+    """Welk alarm je wilt nabootsen, en van welke melder."""
+
+    kind: str
+    device_id: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -50,13 +63,36 @@ class WebContext:
     receiver: Any = None
     matrix: Any = None
     on_acknowledge: Any = None
+    #: Levert een zelfgemaakt event in bij de pijplijn (pipeline.submit).
+    submit: Any = None
+
+
+def _channels(config: Config) -> list[str]:
+    """Namen van de meldkanalen die aan staan, voor het dashboard."""
+    return [
+        name
+        for name, enabled in (
+            ("pushover", config.pushover.enabled),
+            ("matrix", config.matrix.enabled),
+        )
+        if enabled
+    ]
 
 
 def create_app(context: WebContext) -> FastAPI:
     config = context.config
-    serializer = URLSafeTimedSerializer(
-        config.web.secret or "ajaxcentral-onveilig", salt="ajaxcentral-session"
-    )
+    secret = config.web.secret
+    if not secret:
+        # Geen vaste terugvalsleutel: die staat in de publieke code, en daarmee
+        # kan iedereen een geldige sessie-cookie ondertekenen en het wachtwoord
+        # omzeilen. Een willekeurige sleutel per start kost alleen dat je na
+        # een herstart opnieuw moet inloggen.
+        secret = secrets.token_hex(32)
+        _LOGGER.warning(
+            "AJAXCENTRAL_WEB_SECRET ontbreekt; tijdelijke sessiesleutel aangemaakt. "
+            "Sessies vervallen bij elke herstart — zet de sleutel in .env."
+        )
+    serializer = URLSafeTimedSerializer(secret, salt="ajaxcentral-session")
 
     app = FastAPI(title="Ajax Alarmcentrale", docs_url=None, redoc_url=None)
     app.state.context = context
@@ -138,6 +174,8 @@ def create_app(context: WebContext) -> FastAPI:
         data["watchdog_threshold_seconds"] = config.sia.offline_after_seconds
         data["selftest"] = await context.selftest.status() if context.selftest is not None else None
         data["matrix_enabled"] = config.matrix.enabled
+        data["pushover_enabled"] = config.pushover.enabled
+        data["channels"] = _channels(config)
         data["now"] = utcnow().isoformat()
         return data
 
@@ -196,8 +234,8 @@ def create_app(context: WebContext) -> FastAPI:
 
     @app.post("/api/selftest/ring")
     async def selftest_ring(user: str = Depends(current_user)) -> dict[str, Any]:
-        if context.selftest is None or context.matrix is None:
-            raise HTTPException(status_code=503, detail="Matrix staat uit")
+        if context.selftest is None:
+            raise HTTPException(status_code=503, detail="Geen meldkanaal aan")
         run = await context.selftest.run_once(kind="manual")
         return {"ok": run.ring_status == "sent", "run": run.to_dict()}
 
@@ -209,6 +247,56 @@ def create_app(context: WebContext) -> FastAPI:
         if run is None:
             raise HTTPException(status_code=404, detail="Nog geen testoproep uitgevoerd")
         return {"ok": True, "run": run.to_dict()}
+
+    # ── Testalarm ────────────────────────────────────────────────────────────
+    #
+    # De testmelding hierboven bewijst dat Pushover je telefoon bereikt. Dit
+    # bewijst de rest: dat een brand- of inbraakalarm de hele keten doorloopt —
+    # pijplijn, logboek, noodmelding, open alarm op het dashboard, bevestiging
+    # over en weer. Het is een echt alarm met een echte code; alleen de titel,
+    # de bron en het bericht verraden dat het een test is.
+
+    @app.post("/api/selftest/alarm")
+    async def selftest_alarm(
+        body: TestAlarmRequest, user: str = Depends(current_user)
+    ) -> dict[str, Any]:
+        if context.selftest is None or context.submit is None:
+            raise HTTPException(status_code=503, detail="Geen meldkanaal aan")
+        if body.kind not in TEST_ALARM_KINDS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Onbekend soort testalarm; kies uit {', '.join(TEST_ALARM_KINDS)}",
+            )
+        device_id = (body.device_id or "").strip() or None
+        if device_id is not None and device_id not in config.devices:
+            raise HTTPException(status_code=400, detail="Onbekend apparaat")
+        device_type = config.device_type(device_id)
+        if device_type is not None and device_type != body.kind:
+            # Een inbraakmelder die brand meldt bestaat niet; zo'n test bewijst
+            # niets over de echte melder en zaait alleen verwarring in het logboek.
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"{config.device_name(device_id)} is geen "
+                    f"{_KIND_DEVICE_LABELS.get(body.kind, body.kind)}; kies een ander apparaat"
+                ),
+            )
+        alarm = simulated_alarm(body.kind, config, device_id=device_id, by=user)
+        _LOGGER.warning("Testalarm gestart door %s: %s", user, alarm.summary())
+        context.submit(alarm)
+        return {"ok": True, "event": alarm.to_dict()}
+
+    @app.get("/api/selftest/alarms")
+    async def selftest_alarms(user: str = Depends(current_user)) -> dict[str, Any]:
+        rows = await context.db.list_events(limit=5, source="test")
+        return {
+            "alarms": [row.to_dict(include_children=True) for row in rows],
+            "kinds": list(TEST_ALARM_KINDS),
+            "devices": [
+                {"id": key, "name": name, "type": config.device_type(key)}
+                for key, name in config.devices.items()
+            ],
+        }
 
     # ── Diagnostiek ──────────────────────────────────────────────────────────
 
@@ -226,6 +314,7 @@ def create_app(context: WebContext) -> FastAPI:
                 "encrypted": bool(config.sia.key),
                 "ping_interval_seconds": config.sia.ping_interval_seconds,
             },
+            "channels": _channels(config),
             "ring_variants": (
                 [v.name for v in context.matrix.ring_sender.selected_variants()]
                 if context.matrix is not None
@@ -272,6 +361,16 @@ def create_app(context: WebContext) -> FastAPI:
 
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+    @app.middleware("http")
+    async def _no_stale_ui(request: Request, call_next: Any) -> Response:
+        # Zonder Cache-Control mag een browser app.js dagenlang uit zijn cache
+        # halen, en dan toont het dashboard na een update nog oude teksten.
+        # "no-cache" dwingt hervalidatie af; dankzij de ETag kost dat niets.
+        response: Response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException) -> Response:

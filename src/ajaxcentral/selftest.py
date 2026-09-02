@@ -14,15 +14,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Protocol
 
 from sqlalchemy import select
 
 from .config import Config
 from .db import Database
 from .models import SelftestRun, as_utc, utcnow
-from .notify.matrix.notifier import MatrixNotifier
 from .tasks import cancel_task
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,15 +30,30 @@ _LOGGER = logging.getLogger(__name__)
 _CHECK_INTERVAL = 60.0
 
 
+class Ringer(Protocol):
+    """Een kanaal dat je telefoon daadwerkelijk kan laten afgaan."""
+
+    name: str
+
+    async def test_ring(self, reason: str) -> bool: ...
+
+
 class SelfTest:
-    def __init__(self, config: Config, db: Database, matrix: MatrixNotifier | None) -> None:
+    def __init__(
+        self, config: Config, db: Database, ringers: Ringer | Sequence[Ringer] | None
+    ) -> None:
         self._config = config
         self._db = db
-        self._matrix = matrix
+        if ringers is None:
+            self._ringers: list[Ringer] = []
+        elif isinstance(ringers, list | tuple):
+            self._ringers = list(ringers)
+        else:
+            self._ringers = [ringers]
         self._task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
-        if not self._config.selftest.enabled or self._matrix is None:
+        if not self._config.selftest.enabled or not self._ringers:
             return
         self._task = asyncio.create_task(self._run(), name="zelftest")
         _LOGGER.info(
@@ -90,25 +105,36 @@ class SelfTest:
 
     async def run_once(self, kind: str = "manual") -> SelftestRun:
         """Voer één testoproep uit en leg het resultaat vast."""
-        assert self._matrix is not None
+        assert self._ringers, "zelftest zonder meldkanaal"
         run = SelftestRun(kind=kind, ring_status="pending")
         async with self._db.session() as session:
             session.add(run)
             await session.commit()
 
-        ok = await self._matrix.test_ring(
-            "Testoproep van de alarmcentrale — bevestig hem in het dashboard"
-        )
+        reason = "Testoproep van de alarmcentrale — bevestig hem in het dashboard of in de app"
+        failed: list[str] = []
+        for ringer in self._ringers:
+            try:
+                sent = await ringer.test_ring(reason)
+            except Exception:  # pragma: no cover - defensief
+                _LOGGER.exception("Testoproep via %s crashte", ringer.name)
+                sent = False
+            if not sent:
+                failed.append(ringer.name)
+        ok = len(failed) < len(self._ringers)
 
         async with self._db.session() as session:
             stored = await session.get(SelftestRun, run.id)
             if stored is not None:
                 stored.ring_status = "sent" if ok else "failed"
-                stored.detail = (
-                    "Oproep verstuurd; wacht op bevestiging"
-                    if ok
-                    else "Oproep kon niet verstuurd worden"
-                )
+                if not ok:
+                    stored.detail = "Oproep kon niet verstuurd worden"
+                elif failed:
+                    stored.detail = (
+                        f"Verstuurd, maar mislukt via {', '.join(failed)}; wacht op bevestiging"
+                    )
+                else:
+                    stored.detail = "Oproep verstuurd; wacht op bevestiging"
                 await session.commit()
                 run = stored
 
@@ -175,8 +201,8 @@ class SelfTest:
         status = await self.status()
         if status.get("warning"):
             _LOGGER.error(
-                "Belpad verdacht: %s. Controleer je Matrix-instellingen en "
-                "push-regel voordat je hierop vertrouwt.",
+                "Belpad verdacht: %s. Controleer je meldkanaal (Matrix-instellingen en "
+                "push-regel, of de Pushover-app) voordat je hierop vertrouwt.",
                 status.get("state"),
             )
 

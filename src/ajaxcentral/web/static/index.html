@@ -70,22 +70,46 @@
   </section>
 
   <section class="panel tab-panel hidden" data-panel="test">
-    <h2>Werkt het bellen nog?</h2>
+    <h2>Komt een alarm nog aan op je telefoon?</h2>
     <p class="muted">
-      Rinkelen op Element X loopt via een Matrix-specificatie die nog niet vast
-      ligt, en op Android komen oproepen soms niet of te laat aan. Een belpad
-      dat stilletjes kapot gaat merk je pas als het misgaat — tenzij je het
-      regelmatig test.
+      Een meldpad dat stilletjes kapot gaat (verlopen sleutel, app in
+      slaapstand, Niet Storen zonder uitzondering) merk je pas tijdens een
+      inbraak — tenzij je het regelmatig test. Daarom stuurt de centrale
+      wekelijks een testmelding, en kun je er hier zelf een sturen.
     </p>
+    <div id="channel-status"></div>
     <div id="selftest-status"></div>
     <div class="row">
-      <button id="test-ring">Testoproep versturen</button>
+      <button id="test-ring">Testmelding versturen</button>
       <button id="test-ack" class="secondary">Ik heb hem gehoord</button>
     </div>
     <p class="muted small">
-      Verstuur de testoproep en bevestig hier zodra je telefoon daadwerkelijk
-      is gegaan. Blijft de bevestiging uit, dan slaat het dashboard alarm.
+      Bevestig de testmelding in de Pushover-app, of hier zodra je telefoon
+      daadwerkelijk is gegaan. Blijft de bevestiging uit, dan slaat het
+      dashboard alarm.
     </p>
+
+    <h2>Een echt alarm nabootsen</h2>
+    <p class="muted">
+      De testmelding hierboven bewijst dat je telefoon bereikbaar is. Dit
+      bewijst de rest: een brand- of inbraakalarm doorloopt precies dezelfde
+      route als een melding van de hub — logboek, noodmelding met sirene,
+      open alarm op het dashboard, bevestiging over en weer. Alleen de titel
+      zegt "(TEST)". Bevestig hem daarna in de app of hierboven bij de open
+      alarmen, anders blijft je telefoon herhalen. Welke melders je kunt
+      kiezen volgt uit <code>device_types</code> in config.yaml.
+    </p>
+    <div class="row">
+      <select id="test-alarm-kind">
+        <option value="fire">Brandalarm</option>
+        <option value="burglary">Inbraakalarm</option>
+      </select>
+      <select id="test-alarm-device"><option value="">Testmelder (geen apparaat)</option></select>
+      <button id="test-alarm" class="danger">Testalarm sturen</button>
+    </div>
+    <div id="test-alarm-status"></div>
+    <h3>Laatste testalarmen</h3>
+    <div id="test-alarm-list"></div>
   </section>
 
   <section class="panel tab-panel hidden" data-panel="diag">

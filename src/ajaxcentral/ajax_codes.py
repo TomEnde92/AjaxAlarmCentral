@@ -84,6 +84,17 @@ _SUBJECT_BY_CONCERNS: dict[str, str] = {
     # nummer blijft bewaard in het bericht en onder Diagnostiek.
 }
 
+#: Waar de Ajax hub afwijkt van de SIA-tabel. Voor de nachtstand zegt SIA dat
+#: het nummer de groep is, maar de hub stuurt daar — net als bij CL en OP — de
+#: gebruiker die schakelde; de groep zelf zit al in het ri-veld. Zonder deze
+#: uitzondering wordt "Nachtstand ingeschakeld door Touchpanel" in het logboek
+#: "Nachtstand ingeschakeld — groep 14", en verschijnt er een spookgroep 14 in
+#: de status.
+_AJAX_SUBJECT_OVERRIDES: dict[str, str] = {
+    "NL": SUBJECT_USER,
+    "NF": SUBJECT_USER,
+}
+
 
 @dataclass(frozen=True, slots=True)
 class CodeInfo:
@@ -281,6 +292,8 @@ INTERNAL_CODES: dict[str, tuple[str, str, str]] = {
     "HUBOFF": (CATEGORY_SUPERVISION, "alarm", "Hub niet bereikbaar"),
     "HUBON": (CATEGORY_SUPERVISION, "restore", "Hub weer bereikbaar"),
     "SELFTEST": (CATEGORY_TEST, "info", "Zelftest van de belketen"),
+    "DBFAIL": (CATEGORY_SYSTEM, "trouble", "Opslag van events mislukt"),
+    "DBOK": (CATEGORY_SYSTEM, "restore", "Opslag van events hersteld"),
 }
 
 _INTERNAL_DESCRIPTIONS = {
@@ -289,6 +302,12 @@ _INTERNAL_DESCRIPTIONS = {
         "stroomuitval, een verbroken netwerkverbinding of sabotage zijn."
     ),
     "HUBON": "De hub stuurt weer events; de verbinding is hersteld.",
+    "DBFAIL": (
+        "De centrale kan events niet meer wegschrijven (volle of defecte "
+        "SD-kaart?). Meldingen gaan nog wel uit, maar het logboek loopt niet "
+        "meer bij en openstaande alarmen overleven geen herstart."
+    ),
+    "DBOK": "Events worden weer opgeslagen.",
     "SELFTEST": (
         "Testoproep om te bewijzen dat de keten tot je telefoon werkt. "
         "Bevestig hem in het dashboard."
@@ -393,7 +412,7 @@ def describe(code: str | None) -> CodeInfo:
 
     sia = SIA_CODES.get(code)
     english = f"{sia.type}. {sia.description}" if sia else ""
-    subject = (
+    subject = _AJAX_SUBJECT_OVERRIDES.get(code) or (
         _SUBJECT_BY_CONCERNS.get(sia.concerns, SUBJECT_NONE) if sia is not None else SUBJECT_NONE
     )
 

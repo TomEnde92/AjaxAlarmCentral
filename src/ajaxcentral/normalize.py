@@ -89,7 +89,9 @@ def normalize(event: SIAEvent, config: Config) -> AlarmEvent:
         user_id = number
         user_name = config.user_name(number)
     elif info.subject == SUBJECT_AREA:
-        partition_id = number or partition_id
+        # Bij SIA-DCS staat de groep al in het ri-veld; het losse nummer is
+        # dan alleen een terugval, nooit een overschrijving.
+        partition_id = partition_id or number
     elif info.subject != SUBJECT_NONE:
         device_id = number
 
@@ -148,4 +150,53 @@ def internal_event(
         partition_id=partition_id,
         partition_name=(config.partition_name(partition_id) if partition_id else "systeem"),
         message=message,
+    )
+
+
+#: Welke alarmen je vanuit het dashboard kunt nabootsen, en met welke code.
+#: Bewust echte hub-codes: het testalarm moet precies dezelfde categorie,
+#: ernst en meldregels raken als het echte alarm dat het nabootst.
+TEST_ALARM_KINDS: dict[str, str] = {
+    "fire": "FA",
+    "burglary": "BA",
+}
+
+
+def simulated_alarm(
+    kind: str,
+    config: Config,
+    *,
+    device_id: str | None = None,
+    by: str = "dashboard",
+) -> AlarmEvent:
+    """Bouw een nagebootst brand- of inbraakalarm.
+
+    Het verschil met een echt alarm zit alleen in de herkenbaarheid: de titel
+    krijgt "(TEST)", de bron is "test" en het bericht vertelt wie hem stuurde.
+    Alles daaromheen — categorie, ernst, noodmelding, bevestiging — is echt,
+    want dat is nu juist wat je wilt testen.
+    """
+    try:
+        code = TEST_ALARM_KINDS[kind]
+    except KeyError:
+        raise ValueError(f"onbekend soort testalarm: {kind!r}") from None
+    info = describe(code)
+    device_id = device_id or None
+    return AlarmEvent(
+        code=code,
+        category=info.category,
+        severity=info.severity,
+        title=f"{info.title} (TEST)",
+        description=(
+            f"{info.description} Dit is een testalarm vanuit het dashboard, "
+            "geen melding van de hub."
+        ),
+        source="test",
+        account=config.sia.account_id,
+        device_id=device_id,
+        device_name=config.device_name(device_id) if device_id else "testmelder",
+        partition_id=None,
+        partition_name="systeem",
+        zone=device_id,
+        message=f"Testalarm gestart door {by}",
     )

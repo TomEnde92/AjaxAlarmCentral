@@ -27,7 +27,25 @@ SEVERITY_ORDER: dict[str, int] = {
     "alarm": 5,
 }
 
+#: Alarmcategorieën die standaard een oproep of noodmelding opleveren, en niet
+#: alleen een bericht. Gedeeld door Matrix en Pushover.
+DEFAULT_RING_CATEGORIES: tuple[str, ...] = (
+    "burglary",
+    "fire",
+    "gas",
+    "heat",
+    "panic",
+    "medical",
+    "supervision",
+)
+
 ENV_PREFIX = "AJAXCENTRAL_"
+
+
+#: Soorten melder die je per apparaat kunt instellen. "other" is voor alles wat
+#: geen alarm geeft (sirene, sleutelhanger, bedienpaneel) en dus bij geen enkel
+#: testalarm te kiezen is.
+DEVICE_TYPES: tuple[str, ...] = ("fire", "burglary", "other")
 
 
 class SiaConfig(BaseModel):
@@ -38,6 +56,9 @@ class SiaConfig(BaseModel):
     key: str | None = None
     ping_interval_seconds: int = 60
     offline_factor: float = 2.5
+    #: Zolang de hub weg blijft en het HUBOFF-alarm niet bevestigd is, wordt
+    #: het om de zoveel seconden opnieuw gemeld (nieuwe belronde). 0 = uit.
+    offline_repeat_seconds: int = 900
 
     @property
     def offline_after_seconds(self) -> float:
@@ -94,20 +115,54 @@ class RingConfig(BaseModel):
     with_member_state: bool = True
     lifetime_ms: int = 45000
     intent: Literal["voice", "video"] = "voice"
-    categories: list[str] = Field(
-        default_factory=lambda: [
-            "burglary",
-            "fire",
-            "gas",
-            "heat",
-            "panic",
-            "medical",
-            "supervision",
-        ]
-    )
+    categories: list[str] = Field(default_factory=lambda: list(DEFAULT_RING_CATEGORIES))
     # Float zodat tests met fracties kunnen werken zonder een minuut te wachten.
     retry_interval_seconds: float = 60.0
     max_attempts: int = 5
+
+
+class PushoverConfig(BaseModel):
+    """Pushover: noodmelding met bevestiging, zonder homeserver of push-regels."""
+
+    enabled: bool = False
+    user_key: str | None = None
+    token: str | None = None
+    #: Leeg = alle toestellen van het account.
+    device: str | None = None
+    #: Geluid van de noodmelding; zie pushover.net/api#sounds.
+    sound: str = "siren"
+    #: Pushover herhaalt de noodmelding op de telefoon met dit interval (min. 30)
+    #: tot hij bevestigd is, en geeft het op na expire_seconds (max. 10800).
+    retry_seconds: int = 30
+    expire_seconds: int = 3600
+    #: Welke alarmcategorieën een noodmelding zijn; de rest is een gewoon bericht.
+    categories: list[str] = Field(default_factory=lambda: list(DEFAULT_RING_CATEGORIES))
+    #: Hoe vaak we bij Pushover navragen of de noodmelding bevestigd is.
+    poll_interval_seconds: float = 20.0
+    api_url: str = "https://api.pushover.net/1"
+
+    @field_validator("retry_seconds")
+    @classmethod
+    def _check_retry(cls, v: int) -> int:
+        if v < 30:
+            raise ValueError("pushover.retry_seconds moet minimaal 30 zijn (eis van Pushover)")
+        return v
+
+    @field_validator("expire_seconds")
+    @classmethod
+    def _check_expire(cls, v: int) -> int:
+        if not 30 <= v <= 10800:
+            raise ValueError("pushover.expire_seconds moet tussen 30 en 10800 liggen")
+        return v
+
+    @model_validator(mode="after")
+    def _check_complete(self) -> PushoverConfig:
+        if self.enabled and not (self.user_key and self.token):
+            raise ValueError(
+                "pushover.enabled staat aan maar AJAXCENTRAL_PUSHOVER_USER en/of "
+                "AJAXCENTRAL_PUSHOVER_TOKEN ontbreekt in .env"
+            )
+        return self
 
 
 class MatrixConfig(BaseModel):
@@ -206,14 +261,28 @@ class Config(BaseModel):
     timezone: str = "Europe/Amsterdam"
     sia: SiaConfig = Field(default_factory=SiaConfig)
     devices: dict[str, str] = Field(default_factory=dict)
+    #: Soort melder per apparaat-id: fire, burglary of other. Bepaalt welke
+    #: melders je bij een testalarm mag kiezen. Niet genoemd = onbekend.
+    device_types: dict[str, str] = Field(default_factory=dict)
     partitions: dict[str, str] = Field(default_factory=dict)
     users: dict[str, str] = Field(default_factory=dict)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     web: WebConfig = Field(default_factory=WebConfig)
     matrix: MatrixConfig = Field(default_factory=MatrixConfig)
+    pushover: PushoverConfig = Field(default_factory=PushoverConfig)
     notifications: NotificationsConfig = Field(default_factory=NotificationsConfig)
     selftest: SelftestConfig = Field(default_factory=SelftestConfig)
     mqtt: MqttConfig = Field(default_factory=MqttConfig)
+
+    @field_validator("device_types")
+    @classmethod
+    def _check_device_types(cls, v: dict[str, str]) -> dict[str, str]:
+        for device_id, kind in v.items():
+            if kind not in DEVICE_TYPES:
+                raise ValueError(
+                    f"device_types[{device_id!r}] is {kind!r}; kies uit {', '.join(DEVICE_TYPES)}"
+                )
+        return v
 
     @field_validator("timezone")
     @classmethod
@@ -238,6 +307,12 @@ class Config(BaseModel):
             or self.devices.get(device_id.lstrip("0"))
             or (f"apparaat {device_id}")
         )
+
+    def device_type(self, device_id: str | None) -> str | None:
+        """Soort melder (fire, burglary, other), of None als het niet is ingesteld."""
+        if not device_id:
+            return None
+        return self.device_types.get(device_id) or self.device_types.get(device_id.lstrip("0"))
 
     def user_name(self, user_id: str | None) -> str:
         if not user_id:
@@ -271,6 +346,8 @@ def _apply_secrets(raw: dict[str, Any]) -> dict[str, Any]:
     put("web", "password_hash", "WEB_PASSWORD_HASH")
     put("web", "secret", "WEB_SECRET")
     put("matrix", "token", "MATRIX_TOKEN")
+    put("pushover", "user_key", "PUSHOVER_USER")
+    put("pushover", "token", "PUSHOVER_TOKEN")
     put("mqtt", "username", "MQTT_USERNAME")
     put("mqtt", "password", "MQTT_PASSWORD")
     return raw
@@ -285,7 +362,7 @@ def load_config(path: str | Path | None = None) -> Config:
         if loaded:
             raw = loaded
     # YAML mag getallen als sleutel hebben; wij indexeren op string.
-    for section in ("devices", "partitions", "users"):
+    for section in ("devices", "device_types", "partitions", "users"):
         if raw.get(section):
             raw[section] = {str(k): str(v) for k, v in raw[section].items()}
     return Config.model_validate(_apply_secrets(raw))

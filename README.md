@@ -206,6 +206,21 @@ Daarna `docker compose up -d` om de nieuwe config te laden.
 Meerdere varianten tegelijk laten staan werkt ook, maar levert bij een echt
 alarm dubbele meldingen op.
 
+### Eenvoudiger: Pushover in plaats van (of naast) Matrix
+
+Wie geen zin heeft in homeservers en ring-varianten, gebruikt Pushover
+(eenmalig een paar euro per platform). Een alarm gaat dan als *noodmelding*:
+hard geluid dat door Niet Storen heen gaat, door Pushover zelf herhaald tot je
+in de app op Bevestigen tikt. Die bevestiging komt terug in het dashboard, en
+bevestigen in het dashboard laat de telefoon ophouden. De wekelijkse zelftest
+loopt er ook overheen en wordt vanzelf bevestigd als je in de app tikt.
+
+1. Maak op pushover.net een *application* aan en noteer de API token.
+2. Zet je user key en die token in `.env` als `AJAXCENTRAL_PUSHOVER_USER` en
+   `AJAXCENTRAL_PUSHOVER_TOKEN`.
+3. Zet `pushover.enabled: true` in `config.yaml` en herstart.
+4. Stuur een testoproep via het tabblad Belpad en bevestig hem in de app.
+
 ### Waarom er een wekelijkse testoproep is
 
 Je hebt Android gekozen zonder tweede meldkanaal. Dat is de combinatie met het
@@ -217,6 +232,22 @@ orde is: niets.
 Daarom belt de centrale zichzelf wekelijks. Bevestig je die testoproep niet,
 dan zet het dashboard een waarschuwing. Zo ontdek je een kapot belpad op een
 dinsdagmiddag in plaats van tijdens een inbraak.
+
+### Een echt brand- of inbraakalarm nabootsen
+
+De testoproep bewijst alleen dat je telefoon bereikbaar is. Of een *alarm*
+de hele keten doorloopt — pijplijn, logboek, noodmelding met sirene, open
+alarm op het dashboard, bevestiging over en weer — test je met een
+nagebootst alarm: tabblad Belpad → "Een echt alarm nabootsen". Kies brand of
+inbraak en eventueel een melder, en de centrale maakt een event met de echte
+SIA-code (`FA` of `BA`) aan. Het volgt precies dezelfde route als een melding
+van de hub; alleen de titel eindigt op "(TEST)", de bron is "test" en het
+bericht vermeldt wie hem startte. Bevestig hem daarna in de Pushover-app of in
+het dashboard, anders blijft je telefoon herhalen zoals bij een echt alarm.
+
+Welke melders je bij welk soort test kunt kiezen, stel je in met `device_types`
+in `config.yaml` (`fire`, `burglary` of `other`). Een rookmelder verschijnt dan
+alleen bij de brandtest; de server weigert een verkeerde combinatie.
 
 Wil je meer zekerheid, voeg dan een tweede kanaal toe langs een ander pad
 (bijvoorbeeld ntfy of e-mail). De meldlaag is een plug-in-registry: dat is een
