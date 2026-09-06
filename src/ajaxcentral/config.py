@@ -133,8 +133,9 @@ class PushoverConfig(BaseModel):
     sound: str = "siren"
     #: Pushover herhaalt de noodmelding op de telefoon met dit interval (min. 30)
     #: tot hij bevestigd is, en geeft het op na expire_seconds (max. 10800).
+    #: Daarna sturen we zelf een nieuwe noodmelding, tot iemand bevestigt.
     retry_seconds: int = 30
-    expire_seconds: int = 3600
+    expire_seconds: int = 10800
     #: Welke alarmcategorieën een noodmelding zijn; de rest is een gewoon bericht.
     categories: list[str] = Field(default_factory=lambda: list(DEFAULT_RING_CATEGORIES))
     #: Hoe vaak we bij Pushover navragen of de noodmelding bevestigd is.
@@ -200,6 +201,35 @@ class MatrixConfig(BaseModel):
         return self
 
 
+def _in_window(start: time, end: time, now: time) -> bool:
+    """Valt `now` in het venster [start, end)? Een venster mag over middernacht lopen."""
+    if start <= end:
+        return start <= now < end
+    return now >= start or now < end
+
+
+class ArmingConfig(BaseModel):
+    """Hoe in- en uitschakelmeldingen benoemd worden.
+
+    Ajax kent een "nachtmodus" waarin alleen de melders van de nachtgroep
+    aangaan, en stuurt daarvoor altijd de code NL — ook als je hem overdag
+    gebruikt om alleen de begane grond in te schakelen. Binnen het nachtvenster
+    heet dat hier "Nachtinschakeling", daarbuiten "Deelinschakeling".
+    """
+
+    night_start: time = time(21, 0)
+    night_end: time = time(7, 0)
+    night_title: str = "Nachtinschakeling"
+    partial_title: str = "Deelinschakeling"
+
+    def is_night(self, now: time) -> bool:
+        return _in_window(self.night_start, self.night_end, now)
+
+    def title(self, now: time, *, forced: bool = False) -> str:
+        base = self.night_title if self.is_night(now) else self.partial_title
+        return f"{base} (geforceerd)" if forced else base
+
+
 class QuietHoursConfig(BaseModel):
     enabled: bool = False
     start: time = time(23, 0)
@@ -217,10 +247,7 @@ class QuietHoursConfig(BaseModel):
     def is_quiet(self, now: time) -> bool:
         if not self.enabled:
             return False
-        if self.start <= self.end:
-            return self.start <= now < self.end
-        # Venster loopt over middernacht heen.
-        return now >= self.start or now < self.end
+        return _in_window(self.start, self.end, now)
 
 
 class NotificationsConfig(BaseModel):
@@ -266,6 +293,7 @@ class Config(BaseModel):
     device_types: dict[str, str] = Field(default_factory=dict)
     partitions: dict[str, str] = Field(default_factory=dict)
     users: dict[str, str] = Field(default_factory=dict)
+    arming: ArmingConfig = Field(default_factory=ArmingConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     web: WebConfig = Field(default_factory=WebConfig)
     matrix: MatrixConfig = Field(default_factory=MatrixConfig)

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, time
+
 import pytest
 from pysiaalarm import SIAAccount, SIAEvent
 
-from ajaxcentral.config import Config
-from ajaxcentral.normalize import internal_event, normalize, simulated_alarm
+from ajaxcentral.config import ArmingConfig, Config
+from ajaxcentral.normalize import arming_title, internal_event, normalize, simulated_alarm
 from conftest import TEST_ACCOUNT, TEST_KEY
 from fake_hub import adm_body, build_frame, null_body, sia_body
 
@@ -52,7 +54,54 @@ def test_nachtstand_noemt_de_persoon_niet_de_groep(config: Config) -> None:
     assert alarm.device_id is None
     assert alarm.partition_id == "1"
     assert alarm.partition_name == "Begane grond"
-    assert alarm.summary() == "Nachtstand ingeschakeld door Tom"
+    assert alarm.summary() in (
+        "Nachtinschakeling door Tom",
+        "Deelinschakeling door Tom",
+    )
+
+
+def test_nachtmodus_heet_overdag_deelinschakeling(config: Config) -> None:
+    """De hub stuurt altijd NL; de klok bepaalt hoe wij het noemen.
+
+    Venster 21:00-07:00 Europe/Amsterdam. De tijdstippen zijn UTC, dus 13:00Z
+    is 15:00 lokaal en 20:30Z is 22:30 lokaal (zomertijd).
+    """
+    middag = datetime(2026, 9, 6, 13, 0, tzinfo=UTC)
+    avond = datetime(2026, 9, 6, 20, 30, tzinfo=UTC)
+    nanacht = datetime(2026, 9, 6, 3, 0, tzinfo=UTC)
+    assert arming_title("NL", config, middag) == "Deelinschakeling"
+    assert arming_title("NL", config, avond) == "Nachtinschakeling"
+    assert arming_title("NL", config, nanacht) == "Nachtinschakeling"
+    assert arming_title("NF", config, middag) == "Deelinschakeling (geforceerd)"
+    assert arming_title("NF", config, avond) == "Nachtinschakeling (geforceerd)"
+    # Andere inschakelcodes trekken zich niets van de klok aan.
+    assert arming_title("CL", config, middag) == "Ingeschakeld"
+
+
+def test_nachtvenster_randen_en_middernacht() -> None:
+    """Begin hoort erbij, einde niet; een venster mag ook binnen één dag vallen."""
+    over_middernacht = ArmingConfig(night_start=time(21, 0), night_end=time(7, 0))
+    assert over_middernacht.is_night(time(21, 0))
+    assert over_middernacht.is_night(time(23, 59))
+    assert over_middernacht.is_night(time(6, 59))
+    assert not over_middernacht.is_night(time(7, 0))
+    assert not over_middernacht.is_night(time(12, 0))
+
+    binnen_een_dag = ArmingConfig(night_start=time(1, 0), night_end=time(5, 0))
+    assert binnen_een_dag.is_night(time(3, 0))
+    assert not binnen_een_dag.is_night(time(23, 0))
+
+
+def test_normalize_gebruikt_hubtijd_voor_nachtvenster(config: Config) -> None:
+    """Het venster wordt getoetst aan de tijd in het bericht, in de eigen tijdzone."""
+    altijd_nacht = config.model_copy(
+        update={"arming": ArmingConfig(night_start=time(0, 0), night_end=time(23, 59, 59))}
+    )
+    nooit_nacht = config.model_copy(
+        update={"arming": ArmingConfig(night_start=time(0, 0), night_end=time(0, 0))}
+    )
+    assert normalize(_sia("NL", "01", "1"), altijd_nacht).summary() == "Nachtinschakeling door Tom"
+    assert normalize(_sia("NL", "01", "1"), nooit_nacht).summary() == "Deelinschakeling door Tom"
 
 
 def test_onbekende_gebruiker_krijgt_nummer(config: Config) -> None:

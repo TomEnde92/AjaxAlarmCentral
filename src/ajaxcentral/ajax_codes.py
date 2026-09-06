@@ -176,8 +176,12 @@ _TABLE: dict[str, tuple[str, str, str]] = {
     "CQ": (CATEGORY_ARMING, "info", "Op afstand ingeschakeld"),
     "CF": (CATEGORY_ARMING, "info", "Geforceerd ingeschakeld"),
     "CI": (CATEGORY_ARMING, "trouble", "Niet ingeschakeld op verwachte tijd"),
-    "NL": (CATEGORY_ARMING, "info", "Nachtstand ingeschakeld"),
-    "NF": (CATEGORY_ARMING, "info", "Nachtstand geforceerd ingeschakeld"),
+    # Ajax stuurt NL/NF voor de "nachtmodus" (alleen de melders van de
+    # nachtgroep), ook als je die overdag gebruikt. normalize() vervangt deze
+    # titel daarom door Nachtinschakeling of Deelinschakeling op basis van het
+    # tijdstip; dit is alleen de terugval.
+    "NL": (CATEGORY_ARMING, "info", "Nachtinschakeling"),
+    "NF": (CATEGORY_ARMING, "info", "Nachtinschakeling (geforceerd)"),
     "OP": (CATEGORY_ARMING, "info", "Uitgeschakeld"),
     "OG": (CATEGORY_ARMING, "info", "Groep uitgeschakeld"),
     "OA": (CATEGORY_ARMING, "info", "Automatisch uitgeschakeld"),
@@ -284,6 +288,11 @@ _TABLE.update(
 #: er om te lezen, niet om logica op te baseren.
 ARM_CODES = frozenset({"CL", "CG", "CA", "CP", "CQ", "CF", "CB", "CS", "NL", "NF"})
 DISARM_CODES = frozenset({"OP", "OG", "OA", "OQ", "OR", "OB", "OS"})
+
+#: Ajax' nachtmodus: alleen de melders van de nachtgroep gaan aan. De hub
+#: noemt dat altijd "nacht", ook om drie uur 's middags. De titel voor deze
+#: codes hangt daarom af van de klok (zie config.arming en normalize()).
+NIGHT_ARM_CODES = frozenset({"NL", "NF"})
 
 
 #: Interne codes die wij zelf genereren; de hub stuurt ze nooit. Ze doorlopen

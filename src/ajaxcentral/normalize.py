@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pysiaalarm import SIAEvent
 from pysiaalarm.utils import MessageTypes
 
-from .ajax_codes import SUBJECT_AREA, SUBJECT_NONE, SUBJECT_USER, describe
+from .ajax_codes import NIGHT_ARM_CODES, SUBJECT_AREA, SUBJECT_NONE, SUBJECT_USER, describe
 from .config import Config
 from .models import AlarmEvent, utcnow
 
@@ -72,10 +72,25 @@ def _event_timestamp(event: SIAEvent) -> datetime:
     return utcnow()
 
 
+def arming_title(code: str, config: Config, moment: datetime) -> str:
+    """Titel voor een inschakelcode, met de klok als scheidsrechter voor NL/NF.
+
+    Ajax stuurt bij de nachtmodus altijd NL, of het nu nacht is of niet. Wie
+    overdag alleen de begane grond inschakelt, ziet dan "Nachtinschakeling"
+    staan. Binnen het venster uit config.arming blijft het nacht, daarbuiten
+    wordt het een deelinschakeling. Het tijdstip van de hub is leidend.
+    """
+    if code not in NIGHT_ARM_CODES:
+        return describe(code).title
+    local = config.to_local(moment).time()
+    return config.arming.title(local, forced=code == "NF")
+
+
 def normalize(event: SIAEvent, config: Config) -> AlarmEvent:
     """Bouw een AlarmEvent uit een binnengekomen SIA-bericht."""
     code = (event.code or "").upper()
     info = describe(code)
+    event_at = _event_timestamp(event)
 
     number, partition_id = _locate(event)
 
@@ -108,7 +123,7 @@ def normalize(event: SIAEvent, config: Config) -> AlarmEvent:
         code=code or "?",
         category=info.category,
         severity=info.severity,
-        title=info.title,
+        title=arming_title(code, config, event_at),
         description=info.description,
         source="hub",
         account=event.account,
@@ -121,7 +136,7 @@ def normalize(event: SIAEvent, config: Config) -> AlarmEvent:
         zone=device_id,
         message=_clean(event.message),
         raw=event.full_message,
-        event_at=_event_timestamp(event),
+        event_at=event_at,
         received_at=utcnow(),
         uid=uuid.uuid4().hex,
     )
