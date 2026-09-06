@@ -57,8 +57,84 @@ header {
   padding: 1.1rem 0 .8rem;
   flex-wrap: wrap;
 }
-header h1 { font-size: 1.25rem; margin: 0; letter-spacing: .01em; }
-.shield { margin-right: .35rem; }
+header h1 {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  font-size: 1.25rem;
+  margin: 0;
+  letter-spacing: .01em;
+}
+.brand { width: 1.5rem; height: 1.5rem; color: var(--accent); }
+
+/* ── Iconen ───────────────────────────────────────────────────────────────
+   Lijniconen in plaats van emoji: die zien er op elk toestel hetzelfde uit
+   en nemen de kleur van de ernst over. */
+
+svg.ico {
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: -.2em;
+  flex-shrink: 0;
+}
+svg.ico, .brand, .status-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ico-alarm { color: var(--alarm); }
+.ico-trouble { color: var(--trouble); }
+.ico-restore { color: var(--restore); }
+.ico-info { color: var(--info); }
+.ico-heartbeat { color: var(--heartbeat); }
+.ico-unknown { color: var(--unknown); }
+
+/* ── Statusbalk ───────────────────────────────────────────────────────────
+   Eén regel die in één oogopslag zegt of je op de centrale kunt vertrouwen.
+   Bij een open alarm is dit het enige wat je hoort te zien. */
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.2rem;
+  margin-bottom: 1rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+.status-icon { display: flex; }
+.status-icon svg { width: 2.4rem; height: 2.4rem; }
+.status-title { font-size: 1.35rem; font-weight: 700; line-height: 1.2; }
+.status-detail { color: var(--muted); font-size: .9rem; margin-top: .2rem; }
+.status-bar.ok { border-color: var(--restore); }
+.status-bar.ok .status-icon { color: var(--restore); }
+.status-bar.warn {
+  border-color: var(--trouble);
+  background: color-mix(in srgb, var(--trouble) 12%, var(--panel));
+}
+.status-bar.warn .status-icon { color: var(--trouble); }
+.status-bar.bad {
+  border-color: var(--alarm);
+  background: color-mix(in srgb, var(--alarm) 14%, var(--panel));
+}
+.status-bar.bad .status-icon { color: var(--alarm); }
+.status-bar.alarm {
+  background: var(--alarm);
+  border-color: var(--alarm);
+  color: #fff;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.status-bar.alarm .status-detail { color: rgba(255, 255, 255, .85); }
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, .55); }
+  50% { box-shadow: 0 0 0 10px rgba(231, 76, 60, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-bar.alarm { animation: none; }
+}
 .header-right { display: flex; align-items: center; gap: .75rem; }
 
 /* ── Tegels ───────────────────────────────────────────────────────────── */
@@ -119,7 +195,11 @@ header h1 { font-size: 1.25rem; margin: 0; letter-spacing: .01em; }
   gap: 1rem;
   flex-wrap: wrap;
 }
-#alarm-panel { border-color: var(--alarm); border-left: 4px solid var(--alarm); }
+.alarm-panel { border-color: var(--alarm); border-left: 4px solid var(--alarm); }
+.alarm-panel h2 { color: var(--alarm); font-size: 1.1rem; }
+.alarm-row .title { font-weight: 600; font-size: 1.05rem; }
+.alarm-row .calls { color: var(--muted); font-size: .84rem; }
+.alarm-row .calls.bad { color: var(--alarm); }
 
 /* ── Tabbladen ────────────────────────────────────────────────────────── */
 
@@ -165,7 +245,16 @@ select, input {
   border-radius: 8px;
   padding: .42rem .6rem;
 }
-.filters { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-bottom: .8rem; }
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: .5rem 1rem;
+  flex-wrap: wrap;
+  margin-bottom: .8rem;
+}
+.filters { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+.field { display: flex; align-items: center; gap: .35rem; color: var(--muted); font-size: .88rem; }
+.field input[type="date"] { color-scheme: inherit; }
 .row { display: flex; gap: .5rem; flex-wrap: wrap; margin: .8rem 0 .4rem; }
 .check { display: flex; align-items: center; gap: .35rem; color: var(--muted); font-size: .88rem; }
 .check input { accent-color: var(--accent); }
@@ -181,7 +270,8 @@ select, input {
   border-bottom: 1px solid var(--line);
 }
 .event:last-child { border-bottom: none; }
-.event .icon { font-size: 1.05rem; grid-row: span 2; }
+.event .icon { display: flex; align-items: center; grid-row: span 2; }
+.event .icon svg { width: 1.2rem; height: 1.2rem; }
 .event .title { font-weight: 600; }
 .event .when { color: var(--muted); font-size: .82rem; white-space: nowrap; grid-row: span 2; }
 .event .meta { color: var(--muted); font-size: .84rem; grid-column: 2; }
@@ -205,7 +295,6 @@ select, input {
   flex-wrap: wrap;
 }
 .alarm-row:last-child { border-bottom: none; }
-.alarm-row .calls { color: var(--muted); font-size: .84rem; }
 
 /* ── Meldingen en badges ──────────────────────────────────────────────── */
 
@@ -292,4 +381,9 @@ footer { text-align: center; padding-top: 1rem; }
 
   .alarm-row { align-items: flex-start; }
   .alarm-row button { width: 100%; }
+
+  .status-bar { padding: .8rem .9rem; }
+  .status-icon svg { width: 1.9rem; height: 1.9rem; }
+  .status-title { font-size: 1.15rem; }
+  .toolbar > .filters:last-child { width: 100%; }
 }

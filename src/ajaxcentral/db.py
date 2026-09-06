@@ -111,6 +111,7 @@ class Database:
         device_id: str | None = None,
         partition_id: str | None = None,
         since: datetime | None = None,
+        until: datetime | None = None,
         source: str | None = None,
     ) -> Sequence[Event]:
         stmt = select(Event).order_by(Event.received_at.desc(), Event.id.desc())
@@ -126,6 +127,8 @@ class Database:
             stmt = stmt.where(Event.partition_id == partition_id)
         if since:
             stmt = stmt.where(Event.received_at >= since)
+        if until:
+            stmt = stmt.where(Event.received_at < until)
         if source:
             stmt = stmt.where(Event.source == source)
         stmt = stmt.limit(limit).offset(offset)

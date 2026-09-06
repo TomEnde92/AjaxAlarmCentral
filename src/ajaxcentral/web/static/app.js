@@ -6,10 +6,27 @@
  * weergave altijd in jouw lokale tijd staat zonder serverconfiguratie.
  */
 
-const ICONS = {
-  alarm: "🚨", trouble: "⚠️", restore: "✅",
-  info: "ℹ️", heartbeat: "💓", unknown: "❓",
+// Lijniconen (24x24, stroke). Geen emoji: die verschillen per toestel en
+// kleuren niet mee met de ernst.
+const ICON_PATHS = {
+  alarm: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+  trouble: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  restore: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  heartbeat: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+  unknown: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
+  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>',
+  shieldOff: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 9 6 6"/><path d="m15 9-6 6"/>',
 };
+
+function icon(name, cls) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("class", `ico ico-${name}${cls ? ` ${cls}` : ""}`);
+  svg.innerHTML = ICON_PATHS[name] || ICON_PATHS.unknown;
+  return svg;
+}
 
 const CATEGORY_LABELS = {
   burglary: "Inbraak", fire: "Brand", gas: "Gas / CO", heat: "Hitte",
@@ -24,7 +41,7 @@ const CATEGORY_LABELS = {
 // 1400 regels per dag, en dan zie je de gebeurtenissen die ertoe doen niet meer.
 const state = {
   offset: 0, filters: {}, seen: new Set(),
-  socket: null, backoff: 1000, showHeartbeat: false,
+  socket: null, backoff: 1000, showHeartbeat: false, lastStatus: null,
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -44,6 +61,18 @@ function formatTime(iso) {
   const sameDay = d.toDateString() === today.toDateString();
   const time = d.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   return sameDay ? time : `${d.toLocaleDateString("nl-NL", { day: "2-digit", month: "2-digit" })} ${time}`;
+}
+
+function formatRelative(iso) {
+  if (!iso) return "";
+  const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (seconds < 45) return "zojuist";
+  if (seconds < 90) return "1 min geleden";
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min geleden`;
+  if (seconds < 7200) return "1 uur geleden";
+  if (seconds < 86400) return `${Math.round(seconds / 3600)} uur geleden`;
+  const days = Math.round(seconds / 86400);
+  return days === 1 ? "gisteren" : `${days} dagen geleden`;
 }
 
 function formatDuration(seconds) {
@@ -139,7 +168,9 @@ function renderTiles(status) {
     tiles.append(tile(
       partition.name,
       partition.armed ? "Ingeschakeld" : "Uitgeschakeld",
-      partition.changed_at ? `sinds ${formatTime(partition.changed_at)}` : "nog geen wijziging gezien",
+      partition.changed_at
+        ? `sinds ${formatTime(partition.changed_at)} (${formatRelative(partition.changed_at)})`
+        : "nog geen wijziging gezien",
       // Ingeschakeld krijgt een eigen kleur: in één oogopslag zien of het
       // huis bewaakt wordt, zonder de tekst te hoeven lezen.
       partition.armed ? "armed" : "plain",
@@ -151,6 +182,63 @@ function tile(label, value, sub, kind) {
   const node = el("div", `tile ${kind}`);
   node.append(el("div", "label", label), el("div", "value", value), el("div", "sub", sub));
   return node;
+}
+
+/* ── Statusbalk ────────────────────────────────────────────────────────── */
+
+// Eén samengesteld oordeel, van ernstig naar gerust: alarm, buiten dienst,
+// beperkt, in orde. Alles wat hieronder als reden telt, staat ook ergens
+// anders op het scherm; dit is de samenvatting die je van een afstand leest.
+function renderOverall(status) {
+  const bar = $("#overall");
+  const iconBox = $("#overall-icon");
+  const title = $("#overall-title");
+  const detail = $("#overall-detail");
+  iconBox.textContent = "";
+
+  const limits = [];
+  const troubles = status.troubles || [];
+  if (troubles.length) limits.push(`${troubles.length} storing(en): ${troubles.map((t) => t.title).join(", ")}`);
+  if (status.failed_notifications_24h > 0) limits.push(`${status.failed_notifications_24h} melding(en) niet verstuurd in het afgelopen etmaal`);
+  if (status.selftest && status.selftest.warning) limits.push(`zelftest: ${status.selftest.state}`);
+
+  let level, text, sub, iconName;
+  if (status.open_alarms > 0) {
+    level = "alarm"; iconName = "alarm";
+    const last = status.last_alarm;
+    text = status.open_alarms === 1 ? "ALARM" : `ALARM — ${status.open_alarms} openstaand`;
+    sub = last ? `${last.summary} · ${formatRelative(last.received_at)}` : "bevestig hieronder";
+  } else if (!status.hub_online) {
+    level = "bad"; iconName = "shieldOff";
+    text = "Buiten dienst";
+    sub = `De hub is niet bereikbaar; laatste bericht ${formatDuration(status.seconds_since_contact)} geleden.`;
+  } else if (!(status.channels || []).length) {
+    level = "bad"; iconName = "shieldOff";
+    text = "Buiten dienst";
+    sub = "Er staat geen meldkanaal aan; bij een alarm gaat je telefoon niet.";
+  } else if (limits.length) {
+    level = "warn"; iconName = "trouble";
+    text = "Beperkt";
+    sub = limits.join(" · ");
+  } else {
+    level = "ok"; iconName = "shield";
+    text = "Alles in orde";
+    const parts = [
+      status.any_armed ? "ingeschakeld" : "uitgeschakeld",
+      `hub verbonden`,
+      `meldkanaal ${(status.channels || []).map((n) => CHANNEL_NAMES[n] || n).join(" en ")}`,
+    ];
+    if (status.selftest && status.selftest.last && status.selftest.last.acknowledged_at) {
+      parts.push(`zelftest bevestigd ${formatRelative(status.selftest.last.acknowledged_at)}`);
+    }
+    sub = parts.join(" · ");
+  }
+
+  bar.className = `status-bar ${level}`;
+  iconBox.append(icon(iconName));
+  title.textContent = text;
+  detail.textContent = sub;
+  document.title = level === "alarm" ? "ALARM — Alarmcentrale" : "Ajax Alarmcentrale";
 }
 
 /* ── Waarschuwingsbalken ───────────────────────────────────────────────── */
@@ -172,7 +260,7 @@ function renderBanners(status) {
   const selftest = status.selftest;
   if (selftest && selftest.warning) {
     banners.append(banner("warn",
-      `Meldpad onbevestigd: ${selftest.state}. Stuur een testmelding via het tabblad Belpad.`));
+      `Meldpad onbevestigd: ${selftest.state}. Stuur een testmelding via het tabblad Meldingen.`));
   }
   if (!status.matrix_enabled && !status.pushover_enabled) {
     banners.append(banner("bad",
@@ -197,13 +285,12 @@ async function renderAlarms() {
   alarms.forEach((alarm) => {
     const row = el("div", "alarm-row");
     const left = el("div");
-    left.append(el("div", "title", `${ICONS[alarm.severity] || "•"} ${alarm.title} — ${alarm.device_name}`));
-    const calls = alarm.calls || [];
-    const sent = calls.filter((c) => c.status === "sent").length;
-    const failed = calls.filter((c) => c.status === "failed").length;
-    left.append(el("div", "calls",
-      `${formatTime(alarm.received_at)} · ${sent} oproep(en) verstuurd` +
-      (failed ? `, ${failed} mislukt` : "")));
+    const title = el("div", "title");
+    title.append(icon(alarm.severity), document.createTextNode(` ${alarm.summary || `${alarm.title} — ${alarm.device_name}`}`));
+    left.append(title);
+    const phone = describeDelivery(alarm);
+    left.append(el("div", `calls${phone.bad ? " bad" : ""}`,
+      `${formatTime(alarm.received_at)} (${formatRelative(alarm.received_at)}) · ${phone.text}`));
     const button = el("button", "danger", "Bevestigen");
     button.addEventListener("click", async () => {
       button.disabled = true;
@@ -213,6 +300,31 @@ async function renderAlarms() {
     row.append(left, button);
     list.append(row);
   });
+}
+
+// Wat er met de melding naar je telefoon gebeurd is. Bij Pushover is één
+// noodmelding genoeg: de telefoon herhaalt zelf tot je bevestigt. Bij Matrix
+// belt de centrale steeds opnieuw, en telt het aantal pogingen wel.
+function describeDelivery(alarm) {
+  const calls = alarm.calls || [];
+  const notes = alarm.notifications || [];
+  const sentCalls = calls.filter((c) => c.status === "sent");
+  const failedCalls = calls.filter((c) => c.status === "failed");
+  const pushover = sentCalls.some((c) => c.variants === "pushover");
+  const rings = sentCalls.filter((c) => c.variants !== "pushover").length;
+  if (notes.some((n) => n.status === "expired")) {
+    return { text: "noodmelding verlopen zonder bevestiging op de telefoon", bad: true };
+  }
+  const parts = [];
+  if (pushover) parts.push("noodmelding op je telefoon, wacht op bevestiging");
+  if (rings) parts.push(`${rings} belpoging(en) via Matrix`);
+  if (failedCalls.length) parts.push(`${failedCalls.length} poging(en) mislukt`);
+  if (!parts.length) {
+    const sent = notes.some((n) => n.status === "sent");
+    parts.push(sent ? "bericht verstuurd" : "nog geen melding verstuurd");
+    return { text: parts.join(", "), bad: !sent };
+  }
+  return { text: parts.join(", "), bad: !pushover && !rings };
 }
 
 $("#ack-all").addEventListener("click", async () => {
@@ -225,11 +337,15 @@ $("#ack-all").addEventListener("click", async () => {
 function eventNode(event, isNew) {
   const node = el("div", `event sev-${event.severity}${isNew ? " new" : ""}`);
   node.id = `event-${event.id}`;
-  node.append(el("div", "icon", ICONS[event.severity] || "•"));
+  const iconBox = el("div", "icon");
+  iconBox.append(icon(event.severity));
+  node.append(iconBox);
 
   const summary = event.summary || `${event.title} — ${event.device_name}`;
   node.append(el("div", "title", summary));
-  node.append(el("div", "when", formatTime(event.received_at)));
+  const when = el("div", "when", formatTime(event.received_at));
+  when.title = `${new Date(event.received_at).toLocaleString("nl-NL")} · ${formatRelative(event.received_at)}`;
+  node.append(when);
 
   const bits = [CATEGORY_LABELS[event.category] || event.category, `code ${event.code}`];
   // De groep staat vaak al in de samenvatting; twee keer "Begane grond" op
@@ -279,6 +395,28 @@ $("#load-more").addEventListener("click", () => loadEvents(true));
   });
 });
 
+// Datumvelden zijn lokale dagen; de API wil tijdstippen. "Tot en met" 5 maart
+// is dus tot 6 maart 00:00 lokale tijd.
+$("#filter-since").addEventListener("change", (event) => {
+  state.filters.since = event.target.value ? new Date(`${event.target.value}T00:00`).toISOString() : "";
+  loadEvents();
+});
+$("#filter-until").addEventListener("change", (event) => {
+  if (!event.target.value) { state.filters.until = ""; return loadEvents(); }
+  const next = new Date(`${event.target.value}T00:00`);
+  next.setDate(next.getDate() + 1);
+  state.filters.until = next.toISOString();
+  return loadEvents();
+});
+
+$("#export").addEventListener("click", () => {
+  const params = new URLSearchParams({ include_heartbeat: String(state.showHeartbeat) });
+  Object.entries(state.filters).forEach(([key, value]) => { if (value) params.set(key, value); });
+  // Gewone navigatie: de browser stuurt de sessiecookie mee en slaat het
+  // bestand op zoals hij dat met elke download doet.
+  window.location.assign(`/api/events.csv?${params}`);
+});
+
 function fillCategoryFilter() {
   const select = $("#filter-category");
   Object.entries(CATEGORY_LABELS).forEach(([value, label]) => {
@@ -288,7 +426,7 @@ function fillCategoryFilter() {
   });
 }
 
-/* ── Belpad ────────────────────────────────────────────────────────────── */
+/* ── Meldingen ─────────────────────────────────────────────────────────── */
 
 const CHANNEL_NAMES = { pushover: "Pushover", matrix: "Matrix / Element X" };
 
@@ -542,7 +680,14 @@ function connect() {
       if (payload.data.severity === "alarm") renderAlarms();
       if (payload.data.source === "test") renderTestAlarms();
     }
-    if (payload.status) { renderTiles(payload.status); renderBanners(payload.status); }
+    if (payload.status) {
+      // De WebSocket-status kent de kanalen en de zelftest niet; die halen we
+      // met de volgende refreshStatus op. Tot die tijd de bekende waarden
+      // hergebruiken, anders flitst de balk kort naar "buiten dienst".
+      const merged = { ...(state.lastStatus || {}), ...payload.status };
+      state.lastStatus = merged;
+      renderOverall(merged); renderTiles(merged); renderBanners(merged);
+    }
   });
 
   socket.addEventListener("close", () => {
@@ -564,6 +709,8 @@ function setConnection(text, cls) {
 
 async function refreshStatus() {
   const status = await api("/api/status");
+  state.lastStatus = status;
+  renderOverall(status);
   renderTiles(status);
   renderBanners(status);
   renderChannels(status);

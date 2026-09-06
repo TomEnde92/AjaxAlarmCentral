@@ -13,6 +13,11 @@ een noodmelding een ontvangstbewijs (receipt) terug waarmee we kunnen navragen
 zodat het dashboard het ziet en een eventuele Matrix-belronde stopt. Andersom
 geldt hetzelfde: bevestig je in het dashboard, dan trekken we het bewijs in en
 houdt de telefoon op met herhalen.
+
+Pushover geeft een noodmelding na hooguit drie uur op. Een alarm mag niet
+stilvallen omdat niemand het gehoord heeft, dus zodra een noodmelding verloopt
+zonder bevestiging sturen we een nieuwe, en dat blijft doorgaan tot iemand het
+alarm bevestigt — als een pieper van de brandweer.
 """
 
 from __future__ import annotations
@@ -38,6 +43,9 @@ _LOGGER = logging.getLogger(__name__)
 _STATE_KEY = "pushover_receipts"
 _SELFTEST_KEY = "selftest"
 _SELFTEST_EXPIRE_SECONDS = 600
+#: Wachttijd voordat we een verlopen noodmelding opnieuw proberen te sturen als
+#: Pushover het verzoek weigerde of onbereikbaar was.
+_RESEND_RETRY_SECONDS = 60
 
 
 class PushoverError(Exception):
@@ -104,7 +112,13 @@ class PushoverNotifier:
     # ── Meldingen ────────────────────────────────────────────────────────────
 
     async def send_event(self, alarm: AlarmEvent) -> None:
+        await self._send(alarm, attempt=1)
+
+    async def _send(self, alarm: AlarmEvent, *, attempt: int) -> None:
+        """Stuur het bericht; attempt > 1 is een herhaalde noodmelding."""
         title, body = plain_text(alarm, self._config)
+        if attempt > 1:
+            body = f"{body}\n\nNog steeds niet bevestigd; noodmelding {attempt}."
         payload: dict[str, Any] = {
             "title": title,
             "message": body,
@@ -139,11 +153,11 @@ class PushoverNotifier:
         if emergency and receipt and alarm.db_id is not None:
             await self._db.log_call(
                 alarm.db_id,
-                1,
+                attempt,
                 "pushover",
                 "sent",
                 f"noodmelding; de telefoon herhaalt elke {self._settings.retry_seconds}s "
-                f"tot bevestiging, maximaal {self._settings.expire_seconds}s",
+                f"tot bevestiging, na {self._settings.expire_seconds}s volgt een nieuwe",
             )
             key = str(alarm.db_id)
             await self._remember(key, receipt)
@@ -211,9 +225,7 @@ class PushoverNotifier:
         watcher = self._watchers.pop(key, None)
         if watcher is not None:
             watcher.cancel()
-        task = asyncio.ensure_future(self._cancel_receipt(key, receipt))
-        self._background.add(task)
-        task.add_done_callback(self._background.discard)
+        self._spawn(self._cancel_receipt(key, receipt))
 
     # ── Ontvangstbewijzen volgen ─────────────────────────────────────────────
 
@@ -282,13 +294,49 @@ class PushoverNotifier:
             return
         event_id = int(key)
         _LOGGER.error(
-            "Alarm %d is na %d seconden herhalen op de telefoon nog steeds niet bevestigd",
+            "Alarm %d is na %d seconden herhalen op de telefoon nog steeds niet bevestigd; "
+            "er gaat een nieuwe noodmelding uit",
             event_id,
             self._settings.expire_seconds,
         )
         await self._db.log_notification(
-            event_id, self.name, "expired", "niet bevestigd op de telefoon"
+            event_id, self.name, "expired", "niet bevestigd op de telefoon; opnieuw gestuurd"
         )
+        self._spawn(self._alarm_again(event_id))
+
+    async def _alarm_again(self, event_id: int) -> None:
+        """Blijf een onbevestigd alarm opnieuw als noodmelding sturen.
+
+        Elke geslaagde verzending start een nieuwe watcher, die bij verlopen
+        weer hier uitkomt. Zo blijft het alarm doorgaan tot iemand bevestigt,
+        ook als Pushover tussendoor even niet bereikbaar is.
+        """
+        while True:
+            row = await self._db.get_event(event_id)
+            if row is None or row.acknowledged_at is not None:
+                return
+            if str(event_id) in self._watchers:
+                return
+            attempt = 1 + sum(
+                1 for c in row.calls if c.variants == "pushover" and c.status == "sent"
+            )
+            try:
+                await self._send(AlarmEvent.from_row(row), attempt=attempt)
+            except NotifyError as exc:
+                _LOGGER.error(
+                    "Nieuwe noodmelding voor alarm %d mislukte (%s); over %ds opnieuw",
+                    event_id,
+                    exc,
+                    _RESEND_RETRY_SECONDS,
+                )
+                await asyncio.sleep(_RESEND_RETRY_SECONDS)
+                continue
+            return
+
+    def _spawn(self, coro: Awaitable[None]) -> None:
+        task = asyncio.ensure_future(coro)
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
 
     async def _acknowledged_in_db(self, event_id: int) -> bool:
         row = await self._db.get_event(event_id)

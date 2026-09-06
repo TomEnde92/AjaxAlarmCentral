@@ -210,16 +210,18 @@ alarm dubbele meldingen op.
 
 Wie geen zin heeft in homeservers en ring-varianten, gebruikt Pushover
 (eenmalig een paar euro per platform). Een alarm gaat dan als *noodmelding*:
-hard geluid dat door Niet Storen heen gaat, door Pushover zelf herhaald tot je
-in de app op Bevestigen tikt. Die bevestiging komt terug in het dashboard, en
-bevestigen in het dashboard laat de telefoon ophouden. De wekelijkse zelftest
+hard geluid dat door Niet Storen heen gaat, door Pushover elke 30 seconden
+herhaald tot je in de app op Bevestigen tikt. Pushover geeft één noodmelding na
+drie uur op; de centrale stuurt dan een nieuwe, en blijft dat doen tot iemand
+bevestigt — als een oproeppieper. Die bevestiging komt terug in het dashboard,
+en bevestigen in het dashboard laat de telefoon ophouden. De wekelijkse zelftest
 loopt er ook overheen en wordt vanzelf bevestigd als je in de app tikt.
 
 1. Maak op pushover.net een *application* aan en noteer de API token.
 2. Zet je user key en die token in `.env` als `AJAXCENTRAL_PUSHOVER_USER` en
    `AJAXCENTRAL_PUSHOVER_TOKEN`.
 3. Zet `pushover.enabled: true` in `config.yaml` en herstart.
-4. Stuur een testoproep via het tabblad Belpad en bevestig hem in de app.
+4. Stuur een testoproep via het tabblad Meldingen en bevestig hem in de app.
 
 ### Waarom er een wekelijkse testoproep is
 
@@ -238,7 +240,7 @@ dinsdagmiddag in plaats van tijdens een inbraak.
 De testoproep bewijst alleen dat je telefoon bereikbaar is. Of een *alarm*
 de hele keten doorloopt — pijplijn, logboek, noodmelding met sirene, open
 alarm op het dashboard, bevestiging over en weer — test je met een
-nagebootst alarm: tabblad Belpad → "Een echt alarm nabootsen". Kies brand of
+nagebootst alarm: tabblad Meldingen → "Een echt alarm nabootsen". Kies brand of
 inbraak en eventueel een melder, en de centrale maakt een event met de echte
 SIA-code (`FA` of `BA`) aan. Het volgt precies dezelfde route als een melding
 van de hub; alleen de titel eindigt op "(TEST)", de bron is "test" en het
@@ -290,6 +292,7 @@ De belangrijkste:
 | `matrix.ring.categories` | Welke categorieën bellen. `gas` en `heat` staan bewust naast `fire`: een FireProtect Plus meldt rook als `FA`, koolmonoxide als `GA` en hitte als `KA`. |
 | `notifications.min_severity` | Drempel voor tekstmeldingen. Raakt nooit een alarm. |
 | `notifications.quiet_hours` | Stille uren. Onderdrukken nooit een alarm — dat is hard ingebouwd. |
+| `arming.night_start` / `arming.night_end` | Nachtvenster. Ajax stuurt voor de nachtmodus altijd `NL`; binnen dit venster heet dat "Nachtinschakeling", daarbuiten "Deelinschakeling". |
 
 Secrets horen in `.env`, nooit in `config.yaml`. Zo kun je je configuratie delen
 zonder je sleutels weg te geven.

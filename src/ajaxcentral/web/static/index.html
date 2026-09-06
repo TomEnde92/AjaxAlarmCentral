@@ -23,54 +23,75 @@
 
 <div id="app" class="hidden">
   <header>
-    <h1><span class="shield">🛡️</span> Alarmcentrale</h1>
+    <h1>
+      <svg class="brand" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+      <span>Alarmcentrale</span>
+    </h1>
     <div class="header-right">
       <span id="connection" class="pill pill-muted">verbinden…</span>
       <button class="link" id="logout">Uitloggen</button>
     </div>
   </header>
 
-  <div id="banners"></div>
+  <section class="status-bar ok" id="overall" aria-live="polite">
+    <div class="status-icon" id="overall-icon"></div>
+    <div class="status-text">
+      <div class="status-title" id="overall-title">Bezig met laden…</div>
+      <div class="status-detail" id="overall-detail"></div>
+    </div>
+  </section>
 
-  <section class="tiles" id="tiles"></section>
-
-  <section class="panel" id="alarm-panel" hidden>
+  <section class="panel alarm-panel" id="alarm-panel" hidden>
     <div class="panel-head">
       <h2>Openstaande alarmen</h2>
       <button id="ack-all" class="danger">Alles bevestigen</button>
     </div>
-    <p class="muted small">Bevestigen stopt het herhaald bellen.</p>
+    <p class="muted small">
+      Bevestigen laat de telefoon ophouden met herhalen. Bevestig alleen als je
+      weet wat er aan de hand is.
+    </p>
     <div id="alarm-list"></div>
   </section>
 
+  <div id="banners"></div>
+
+  <section class="tiles" id="tiles"></section>
+
   <nav class="tabs">
     <button class="tab active" data-tab="log">Logboek</button>
-    <button class="tab" data-tab="test">Belpad</button>
+    <button class="tab" data-tab="test">Meldingen</button>
     <button class="tab" data-tab="diag">Diagnostiek</button>
   </nav>
 
   <section class="panel tab-panel" data-panel="log">
-    <div class="filters">
-      <select id="filter-severity">
-        <option value="">Alle ernst</option>
-        <option value="alarm">Alarm</option>
-        <option value="trouble">Storing</option>
-        <option value="restore">Herstel</option>
-        <option value="info">Info</option>
-        <option value="heartbeat">Hartslag</option>
-        <option value="unknown">Onbekend</option>
-      </select>
-      <select id="filter-category"><option value="">Alle categorieën</option></select>
-      <label class="check"><input type="checkbox" id="filter-heartbeat"> Hartslagen tonen</label>
-      <button id="refresh">Vernieuwen</button>
-      <span class="muted small" id="log-count"></span>
+    <div class="toolbar">
+      <div class="filters">
+        <select id="filter-severity" aria-label="Ernst">
+          <option value="">Alle ernst</option>
+          <option value="alarm">Alarm</option>
+          <option value="trouble">Storing</option>
+          <option value="restore">Herstel</option>
+          <option value="info">Info</option>
+          <option value="heartbeat">Hartslag</option>
+          <option value="unknown">Onbekend</option>
+        </select>
+        <select id="filter-category" aria-label="Categorie"><option value="">Alle categorieën</option></select>
+        <label class="field">van <input type="date" id="filter-since"></label>
+        <label class="field">tot en met <input type="date" id="filter-until"></label>
+        <label class="check"><input type="checkbox" id="filter-heartbeat"> Hartslagen tonen</label>
+      </div>
+      <div class="filters">
+        <button id="refresh" class="secondary">Vernieuwen</button>
+        <button id="export" class="secondary" title="Het logboek met de huidige filters als CSV, te openen in Excel">Exporteer CSV</button>
+        <span class="muted small" id="log-count"></span>
+      </div>
     </div>
     <div id="events"></div>
     <button id="load-more" class="link">Meer laden</button>
   </section>
 
   <section class="panel tab-panel hidden" data-panel="test">
-    <h2>Komt een alarm nog aan op je telefoon?</h2>
+    <h2>Komt een melding nog aan op je telefoon?</h2>
     <p class="muted">
       Een meldpad dat stilletjes kapot gaat (verlopen sleutel, app in
       slaapstand, Niet Storen zonder uitzondering) merk je pas tijdens een

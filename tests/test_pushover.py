@@ -118,7 +118,7 @@ async def test_alarm_wordt_noodmelding_en_bevestiging_komt_terug(
     sent = fake.messages[-1]
     assert sent["priority"] == "2"
     assert sent["retry"] == "30"
-    assert sent["expire"] == "3600"
+    assert sent["expire"] == "10800"
     assert sent["sound"] == "siren"
     assert sent["title"] == "ALARM: Inbraakalarm — Voordeur"
     assert "Apparaat: Voordeur" in sent["message"]
@@ -170,18 +170,53 @@ async def test_bevestigen_in_dashboard_trekt_noodmelding_in(
     await notifier.stop()
 
 
-async def test_verlopen_noodmelding_wordt_vastgelegd(po_config: Config, db: Database) -> None:
+async def test_verlopen_noodmelding_gaat_opnieuw_tot_bevestiging(
+    po_config: Config, db: Database
+) -> None:
+    fake = FakePushover()
+    acknowledged: list[int] = []
+    notifier = await _notifier(po_config, db, fake, acknowledged.append)
+    alarm = _alarm()
+    await db.store_event(alarm)
+    await notifier.send_event(alarm)
+
+    # Pushover geeft de eerste noodmelding op: er moet een nieuwe uitgaan.
+    fake.expired = True
+    await _wait_until(lambda: len(fake.messages) >= 2)
+    fake.expired = False
+    second = fake.messages[1]
+    assert second["priority"] == "2"
+    assert "noodmelding 2" in second["message"]
+    await _wait_until(lambda: str(alarm.db_id) in notifier._watchers)
+    row = await db.get_event(alarm.db_id)
+    assert row is not None
+    assert row.acknowledged_at is None
+    assert any(n.status == "expired" for n in row.notifications)
+    assert [c.attempt for c in row.calls if c.status == "sent"][:2] == [1, 2]
+
+    # Bevestigen op de telefoon maakt er een eind aan.
+    fake.acknowledged = True
+    await _wait_until(lambda: acknowledged == [alarm.db_id])
+    await _wait_until(lambda: not notifier._watchers)
+    sent_before = len(fake.messages)
+    await asyncio.sleep(0.1)
+    assert len(fake.messages) == sent_before
+    await notifier.stop()
+
+
+async def test_verlopen_noodmelding_van_al_bevestigd_alarm_gaat_niet_opnieuw(
+    po_config: Config, db: Database
+) -> None:
     fake = FakePushover()
     notifier = await _notifier(po_config, db, fake)
     alarm = _alarm()
     await db.store_event(alarm)
     await notifier.send_event(alarm)
+    await db.acknowledge(alarm.db_id, "dashboard")
     fake.expired = True
     await _wait_until(lambda: not notifier._watchers)
-    row = await db.get_event(alarm.db_id)
-    assert row is not None
-    assert row.acknowledged_at is None
-    assert any(n.status == "expired" for n in row.notifications)
+    await asyncio.sleep(0.1)
+    assert len(fake.messages) == 1
     await notifier.stop()
 
 

@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import logging
 import secrets
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, WebSocket
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from pydantic import BaseModel
@@ -179,6 +181,44 @@ def create_app(context: WebContext) -> FastAPI:
         data["now"] = utcnow().isoformat()
         return data
 
+    def _moment(value: str | None, name: str) -> datetime | None:
+        """ISO-tijdstip uit een queryparameter; zonder tijdzone geldt UTC."""
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"{name} is geen geldig tijdstip") from exc
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+    async def _filtered_events(
+        *,
+        limit: int,
+        offset: int,
+        severity: str | None,
+        category: str | None,
+        device_id: str | None,
+        partition_id: str | None,
+        include_heartbeat: bool,
+        since: str | None,
+        until: str | None,
+    ) -> list[Any]:
+        # Bij een ping-interval van een minuut levert de hub ruim 1400
+        # hartslagen per dag. Standaard blijven die buiten het logboek, anders
+        # verdrinkt alles wat je wél wilt zien erin.
+        rows = await context.db.list_events(
+            limit=limit,
+            offset=offset,
+            severity=severity,
+            exclude_severities=None if include_heartbeat else ["heartbeat"],
+            category=category,
+            device_id=device_id,
+            partition_id=partition_id,
+            since=_moment(since, "since"),
+            until=_moment(until, "until"),
+        )
+        return list(rows)
+
     @app.get("/api/events")
     async def events(
         user: str = Depends(current_user),
@@ -189,20 +229,99 @@ def create_app(context: WebContext) -> FastAPI:
         device_id: str | None = None,
         partition_id: str | None = None,
         include_heartbeat: bool = False,
+        since: str | None = None,
+        until: str | None = None,
     ) -> dict[str, Any]:
-        # Bij een ping-interval van een minuut levert de hub ruim 1400
-        # hartslagen per dag. Standaard blijven die buiten het logboek, anders
-        # verdrinkt alles wat je wél wilt zien erin.
-        rows = await context.db.list_events(
+        rows = await _filtered_events(
             limit=min(limit, 500),
             offset=offset,
             severity=severity,
-            exclude_severities=None if include_heartbeat else ["heartbeat"],
             category=category,
             device_id=device_id,
             partition_id=partition_id,
+            include_heartbeat=include_heartbeat,
+            since=since,
+            until=until,
         )
         return {"events": [row.to_dict(include_children=True) for row in rows]}
+
+    @app.get("/api/events.csv")
+    async def events_csv(
+        user: str = Depends(current_user),
+        severity: str | None = None,
+        category: str | None = None,
+        device_id: str | None = None,
+        partition_id: str | None = None,
+        include_heartbeat: bool = False,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> Response:
+        """Het logboek als CSV, voor politie, verzekeraar of je eigen archief.
+
+        Tijden staan in de tijdzone uit config.yaml, want een aangifte met
+        UTC-tijden roept alleen maar vragen op. Puntkomma als scheidingsteken:
+        dat opent Excel in Nederland zonder importwizard.
+        """
+        rows = await _filtered_events(
+            limit=10000,
+            offset=0,
+            severity=severity,
+            category=category,
+            device_id=device_id,
+            partition_id=partition_id,
+            include_heartbeat=include_heartbeat,
+            since=since,
+            until=until,
+        )
+        buffer = io.StringIO()
+        writer = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
+        writer.writerow(
+            [
+                "tijdstip",
+                "ontvangen",
+                "ernst",
+                "categorie",
+                "code",
+                "titel",
+                "apparaat",
+                "apparaat_id",
+                "groep",
+                "gebruiker",
+                "bericht",
+                "bron",
+                "bevestigd_op",
+                "bevestigd_door",
+            ]
+        )
+
+        def local(moment: datetime | None) -> str:
+            return config.to_local(moment).strftime("%Y-%m-%d %H:%M:%S") if moment else ""
+
+        for row in rows:
+            writer.writerow(
+                [
+                    local(row.event_at),
+                    local(row.received_at),
+                    row.severity,
+                    row.category,
+                    row.code,
+                    row.title,
+                    row.device_name,
+                    row.device_id or "",
+                    row.partition_name,
+                    row.user_name or "",
+                    row.message or "",
+                    row.source,
+                    local(row.acknowledged_at),
+                    row.acknowledged_by or "",
+                ]
+            )
+        stamp = config.to_local(utcnow()).strftime("%Y%m%d-%H%M")
+        return PlainTextResponse(
+            "\ufeff" + buffer.getvalue(),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="logboek-{stamp}.csv"'},
+        )
 
     @app.get("/api/alarms")
     async def alarms(user: str = Depends(current_user)) -> dict[str, Any]:

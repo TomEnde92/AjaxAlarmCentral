@@ -132,6 +132,47 @@ async def test_logboek_verbergt_hartslagen(context: WebContext) -> None:
         assert len(with_heartbeat) == 2
 
 
+async def test_datumfilter_en_csv_export(context: WebContext) -> None:
+    """Een aangifte vraagt om een lijst met lokale tijden, niet om een JSON-dump."""
+    from datetime import UTC, datetime
+
+    old = _alarm(code="BA", received_at=datetime(2026, 1, 10, 12, 0, tzinfo=UTC))
+    new = _alarm(
+        code="FA",
+        category="fire",
+        title="Brandalarm",
+        received_at=datetime(2026, 3, 5, 12, 0, tzinfo=UTC),
+    )
+    await context.db.store_event(old)
+    await context.db.store_event(new)
+
+    async with await _client(context) as client:
+        await client.post("/api/login", json={"username": "admin", "password": PASSWORD})
+
+        filtered = (
+            await client.get("/api/events", params={"since": "2026-02-01T00:00:00+00:00"})
+        ).json()["events"]
+        assert [event["code"] for event in filtered] == ["FA"]
+
+        bounded = (
+            await client.get("/api/events", params={"since": "2026-01-01", "until": "2026-02-01"})
+        ).json()["events"]
+        assert [event["code"] for event in bounded] == ["BA"]
+
+        assert (await client.get("/api/events", params={"since": "gisteren"})).status_code == 400
+
+        response = await client.get("/api/events.csv", params={"until": "2026-02-01"})
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/csv")
+        assert "logboek-" in response.headers["content-disposition"]
+        lines = response.text.lstrip("\ufeff").splitlines()
+        assert lines[0].startswith("tijdstip;ontvangen;ernst;")
+        assert len(lines) == 2
+        # 12:00 UTC in januari is 13:00 in Amsterdam.
+        assert lines[1].split(";")[1] == "2026-01-10 13:00:00"
+        assert ";BA;Inbraakalarm;Voordeur;" in lines[1]
+
+
 async def test_bevestigen_stopt_de_escalatie(context: WebContext) -> None:
     alarm = _alarm()
     await context.db.store_event(alarm)

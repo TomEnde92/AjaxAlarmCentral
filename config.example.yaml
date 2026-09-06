@@ -156,9 +156,23 @@ pushover:
   # Welke alarmcategorieën een noodmelding geven; de rest is een gewoon bericht.
   categories: ["burglary", "fire", "gas", "heat", "panic", "medical", "supervision"]
   sound: "siren"           # zie pushover.net/api#sounds
-  retry_seconds: 30        # herhaal-interval op de telefoon (minimaal 30)
-  expire_seconds: 3600     # hoe lang Pushover blijft herhalen (maximaal 10800)
+  retry_seconds: 30        # herhaal-interval op de telefoon (minimaal 30, eis van Pushover)
+  expire_seconds: 10800    # hoe lang Pushover één noodmelding herhaalt (maximaal 10800);
+                           # daarna stuurt de centrale een nieuwe, tot iemand bevestigt
   # device: "telefoon"     # leeg = alle toestellen van je account
+
+# ─────────────────────────────────────────────────────────────────────────────
+# In- en uitschakelen. Ajax stuurt voor de "nachtmodus" (alleen de melders van
+# de nachtgroep, bijvoorbeeld de begane grond) altijd code NL — ook als je die
+# overdag gebruikt. Binnen het nachtvenster meldt de centrale dat als
+# "Nachtinschakeling", daarbuiten als "Deelinschakeling". Tijden in de
+# tijdzone hierboven; het venster mag over middernacht lopen.
+# ─────────────────────────────────────────────────────────────────────────────
+arming:
+  night_start: "21:00"
+  night_end: "07:00"
+  # night_title: "Nachtinschakeling"
+  # partial_title: "Deelinschakeling"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Filters voor tekstmeldingen. Let op: deze filters raken NOOIT severity
