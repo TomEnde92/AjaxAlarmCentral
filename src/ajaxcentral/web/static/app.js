@@ -262,9 +262,9 @@ function renderBanners(status) {
     banners.append(banner("warn",
       `Meldpad onbevestigd: ${selftest.state}. Stuur een testmelding via het tabblad Meldingen.`));
   }
-  if (!status.matrix_enabled && !status.pushover_enabled) {
+  if (!status.pushover_enabled) {
     banners.append(banner("bad",
-      "Geen meldkanaal aan (Matrix en Pushover staan uit): er worden geen meldingen " +
+      "Geen meldkanaal aan (Pushover staat uit): er worden geen meldingen " +
       "verstuurd en je telefoon gaat niet bij een alarm."));
   }
 }
@@ -302,22 +302,21 @@ async function renderAlarms() {
   });
 }
 
-// Wat er met de melding naar je telefoon gebeurd is. Bij Pushover is één
-// noodmelding genoeg: de telefoon herhaalt zelf tot je bevestigt. Bij Matrix
-// belt de centrale steeds opnieuw, en telt het aantal pogingen wel.
+// Wat er met de melding naar je telefoon gebeurd is. Eén noodmelding is
+// genoeg: de telefoon herhaalt zelf tot je bevestigt. Loopt die af zonder
+// bevestiging, dan stuurt de centrale een nieuwe en telt dit er meer.
 function describeDelivery(alarm) {
   const calls = alarm.calls || [];
   const notes = alarm.notifications || [];
   const sentCalls = calls.filter((c) => c.status === "sent");
   const failedCalls = calls.filter((c) => c.status === "failed");
-  const pushover = sentCalls.some((c) => c.variants === "pushover");
-  const rings = sentCalls.filter((c) => c.variants !== "pushover").length;
+  const alerts = sentCalls.filter((c) => c.variants === "pushover").length;
   if (notes.some((n) => n.status === "expired")) {
     return { text: "noodmelding verlopen zonder bevestiging op de telefoon", bad: true };
   }
   const parts = [];
-  if (pushover) parts.push("noodmelding op je telefoon, wacht op bevestiging");
-  if (rings) parts.push(`${rings} belpoging(en) via Matrix`);
+  if (alerts === 1) parts.push("noodmelding op je telefoon, wacht op bevestiging");
+  else if (alerts > 1) parts.push(`${alerts} noodmeldingen op je telefoon, nog niet bevestigd`);
   if (failedCalls.length) parts.push(`${failedCalls.length} poging(en) mislukt`);
   if (!parts.length) {
     const sent = notes.some((n) => n.status === "sent");
@@ -428,14 +427,14 @@ function fillCategoryFilter() {
 
 /* ── Meldingen ─────────────────────────────────────────────────────────── */
 
-const CHANNEL_NAMES = { pushover: "Pushover", matrix: "Matrix / Element X" };
+const CHANNEL_NAMES = { pushover: "Pushover" };
 
 function renderChannels(status) {
   const target = $("#channel-status");
   target.textContent = "";
   const channels = (status.channels || []).map((name) => CHANNEL_NAMES[name] || name);
   if (channels.length === 0) {
-    target.append(banner("bad", "Geen meldkanaal aan. Zet Pushover of Matrix aan in config.yaml."));
+    target.append(banner("bad", "Geen meldkanaal aan. Zet Pushover aan in config.yaml."));
     return;
   }
   target.append(banner("ok", `Actief meldkanaal: ${channels.join(" en ")}`));
@@ -601,8 +600,6 @@ async function loadDiagnostics() {
     ["Versleuteld", data.sia.encrypted ? "ja" : "nee — sterk afgeraden"],
     ["Ping-interval", `${data.sia.ping_interval_seconds} sec`],
     ["Meldkanalen", (data.channels || []).map((n) => CHANNEL_NAMES[n] || n).join(", ") || "geen"],
-    ...(data.ring_variants && data.ring_variants.length
-      ? [["Matrix-belvarianten", data.ring_variants.join(", ")]] : []),
     ["Berichten ontvangen", counters.events ?? 0],
     ["Waarvan geldig", counters.valid_events ?? 0],
     ["Afgekeurd op objectnummer", counters.error_account ?? 0],

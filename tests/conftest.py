@@ -11,13 +11,7 @@ import pytest_asyncio
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from ajaxcentral.config import (
-    Config,
-    DatabaseConfig,
-    MatrixConfig,
-    RingConfig,
-    SiaConfig,
-)
+from ajaxcentral.config import Config, DatabaseConfig, SiaConfig
 from ajaxcentral.db import Database
 
 TEST_KEY = "0123456789abcdef"
@@ -40,19 +34,6 @@ def config(tmp_path: Path) -> Config:
         partitions={"1": "Begane grond", "2": "Verdieping"},
         users={"01": "Tom", "02": "Lisa"},
         database=DatabaseConfig(path=tmp_path / "test.db"),
-        matrix=MatrixConfig(
-            enabled=True,
-            homeserver="https://matrix.test",
-            user_id="@bot:test",
-            room_id="!room:test",
-            target_user_id="@tom:test",
-            token="token",
-            ring=RingConfig(
-                retry_interval_seconds=0.05,
-                max_attempts=3,
-                variants=["rtc-notification", "call-notify-legacy"],
-            ),
-        ),
     )
 
 

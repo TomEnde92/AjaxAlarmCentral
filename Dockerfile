@@ -14,7 +14,6 @@ COPY src ./src
 RUN pip install --no-cache-dir .
 
 COPY config.example.yaml ./
-COPY tools ./tools
 COPY tests/fake_hub.py ./tests/fake_hub.py
 
 RUN mkdir -p /app/data && chown -R ajax:ajax /app

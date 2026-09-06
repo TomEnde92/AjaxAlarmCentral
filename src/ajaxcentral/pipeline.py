@@ -6,7 +6,7 @@ volgt als een echte inbraakmelding: opslaan, status bijwerken, verspreiden.
 
 De inlevering is bewust niet-blokkerend. De SIA-callback draait in de lus die
 ook de volgende berichten van de hub leest; die mag nooit wachten op een
-databaseschrijfactie of een haperend Matrix-verzoek.
+databaseschrijfactie of een haperend verzoek aan de meldingsdienst.
 """
 
 from __future__ import annotations

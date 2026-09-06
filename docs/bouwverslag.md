@@ -4,6 +4,13 @@ Wat er gebouwd is, welke keuzes daarin gemaakt zijn, en wat er onderweg aan het
 licht kwam. Dit document gaat over de *redenering*; de gebruiksaanwijzing staat
 in [`README.md`](../README.md).
 
+> **Let op: dit is een verslag van de oorspronkelijke bouw, niet van de huidige
+> code.** Het bellen via Matrix en Element X dat hieronder uitgebreid aan bod
+> komt, is op 6 september 2026 volledig verwijderd; meldingen lopen sindsdien
+> via Pushover. De redenering is blijven staan omdat ze verklaart waaróm dat
+> pad is opgegeven. Zie [Aanvulling: Matrix eruit](#aanvulling-matrix-eruit)
+> onderaan. Voor de huidige opzet: [`project-context.md`](project-context.md).
+
 ---
 
 ## De opdracht
@@ -334,6 +341,35 @@ Pi-hardware wel de allereerste stap in plaats van een losse handeling later,
 zodat een probleem daarin meteen zichtbaar is in plaats van pas bij het
 handmatig doorlopen van de installatie-instructies.
 
+## Aanvulling: Matrix eruit
+
+Op 6 september 2026 is Matrix volledig uit de centrale gehaald. Wat weg is: het
+pakket `notify/matrix/` (client, bericht, ring, escalatie), `tools/ringtest.py`
+en `tools/setup_pushrule.py`, het `matrix`-blok in de configuratie en alle
+verwijzingen in het dashboard.
+
+**Waarom.** De hierboven beschreven onzekerheid is nooit opgelost, en viel ook
+niet op te lossen aan deze kant: MSC4075 ligt nog steeds niet vast, en het open
+Android-issue betekent dat je per toestel en per app-build opnieuw moet meten of
+er überhaupt gerinkeld wordt. Voor een gewoon berichtenkanaal is dat een last;
+voor een alarmcentrale is het onverdedigbaar. Pushover werd op 1 september 2026
+toegevoegd als eenvoudiger alternatief en bleek in de praktijk te doen wat van
+Matrix verwacht werd: een noodmelding die door Niet Storen heen gaat, zichzelf
+herhaalt tot iemand bevestigt, en die bevestiging terugkoppelt zodat de lus aan
+twee kanten dichtzit. Vanaf dat moment was Matrix ongebruikte code in een
+systeem waarin elk ongebruikt pad een pad is dat stil kan stukgaan.
+
+**Wat dit kost.** De belronde met eigen escalatie (`retry_interval_seconds`,
+`max_attempts`) is vervangen door het herhaalmechanisme van Pushover zelf, met
+een nieuwe noodmelding zodra die na drie uur opgeeft. Er is nu één meldkanaal in
+plaats van twee mogelijke; de plug-in-registry in `notify/base.py` blijft staan
+voor een tweede weg, maar die is er nog niet.
+
+De zelftest, de escalatie na herstart en het onderscheid tussen bellen en
+melden zijn gebleven — die zaten al niet in de Matrix-code zelf.
+
+---
+
 ## Cijfers
 
 | Onderdeel | Omvang |
@@ -343,5 +379,8 @@ handmatig doorlopen van de installatie-instructies.
 | Tests | 1.400 regels, 90 tests |
 | Dashboard | 870 regels HTML, CSS en JavaScript, geen buildstap |
 | Tools | 390 regels |
+
+Dit zijn de cijfers bij oplevering. Na het verwijderen van Matrix is er ruim
+1.100 regels code en gereedschap uit; de testsuite telt nu 104 tests.
 | SIA-codes vertaald | 145 met de hand, de rest via heuristiek |
 | Runtime-afhankelijkheden | 13 |

@@ -1,7 +1,7 @@
 # Ajax Alarmcentrale — voorbeeldconfiguratie.
 # Kopieer naar config.yaml en pas aan. Secrets horen NIET hier maar in .env.
 
-# Tijdzone voor de tijdstippen in Matrix-berichten. Het dashboard gebruikt de
+# Tijdzone voor de tijdstippen in de meldingen. Het dashboard gebruikt de
 # tijdzone van je browser en trekt zich hier niets van aan.
 timezone: "Europe/Amsterdam"
 
@@ -76,84 +76,36 @@ web:
   host: "0.0.0.0"
   port: 8080
   username: "admin"
-  # Zet op de externe URL van het dashboard, zodat links in Matrix-berichten
+  # Zet op de externe URL van het dashboard, zodat links in de melding
   # aanklikbaar zijn vanaf je telefoon.
   base_url: "http://192.168.1.50:8080"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Matrix: tekstmelding + rinkelende oproep
-#
-# Belangrijk: gebruik een ONVERSLEUTELDE 1-op-1 room. Versleutelde rooms geven
-# problemen met push-notificaties, en zonder push rinkelt je telefoon niet.
-# ─────────────────────────────────────────────────────────────────────────────
-matrix:
-  # Laat dit op false staan totdat je AJAXCENTRAL_MATRIX_TOKEN in .env hebt
-  # gezet en de ring-payload met tools/ringtest.py hebt afgesteld (zie
-  # README, "Het bellen instellen"). Met enabled: true en geen token weigert
-  # de app te starten.
-  enabled: false
-  homeserver: "https://matrix.example.org"
-  user_id: "@alarmbot:example.org"      # het bot-account dat stuurt
-  room_id: "!abcdefgh:example.org"      # de alarm-room
-  target_user_id: "@tom:example.org"    # jouw account — wordt ge-mentioned
-
-  ring:
-    enabled: true
-
-    # Welke payload-varianten worden verstuurd. MSC4075 is nog niet stabiel en
-    # verschillende Element X-builds herkennen verschillende event-types, dus
-    # standaard sturen we ze allebei. Gebruik tools/ringtest.py om te bepalen
-    # welke variant jouw toestel daadwerkelijk laat rinkelen, en houd daarna
-    # alleen die over — dat scheelt dubbele meldingen.
-    #
-    # Beschikbaar: rtc-notification, rtc-notification-unstable, call-notify-legacy
-    variants:
-      - rtc-notification
-      - rtc-notification-unstable
-      - call-notify-legacy
-
-    # Schrijf een m.rtc.member state-event zodat er een "actieve" call-sessie
-    # bestaat. Zonder dit negeren sommige clients de ring. Zet uit als
-    # ringtest.py laat zien dat het bij jou ook zonder werkt.
-    with_member_state: true
-
-    lifetime_ms: 45000       # hoe lang de client mag blijven rinkelen
-    intent: "voice"          # voice of video
-
-    # Welke events daadwerkelijk bellen. Alles wat hier niet aan voldoet
-    # levert alleen een tekstmelding op. Let op: alleen events met ernst
-    # "alarm" bellen; een storing in een van deze categorieën niet.
-    #
-    # "gas" en "heat" staan hier bewust naast "fire": een Ajax FireProtect Plus
-    # meldt rook als FA, koolmonoxide als GA en hitte als KA. Wie alleen "fire"
-    # laat bellen, mist twee derde van wat diezelfde melder detecteert.
-    #
-    # "supervision" is de zelfgemaakte melding dat de hub niet meer reageert —
-    # stroomuitval of een doorgeknipte kabel. Haal die er niet uit.
-    #
-    # Alle categorieen: burglary, fire, gas, heat, water, panic, medical,
-    # tamper, arming, power, battery, rf, communication, supervision, access,
-    # test, config, system, unknown
-    categories: ["burglary", "fire", "gas", "heat", "panic", "medical", "supervision"]
-
-    # Escalatie: opnieuw bellen tot je in het dashboard bevestigt.
-    retry_interval_seconds: 60
-    max_attempts: 5
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Pushover: het eenvoudige alternatief voor Matrix. App op je telefoon, geen
-# homeserver, geen push-regels. Een alarm gaat als noodmelding: hard geluid dat
+# Pushover: het meldkanaal. Eén app op je telefoon en één verzoek per melding.
+# Een alarm gaat als noodmelding: hard geluid dat
 # door Niet Storen heen gaat, herhaald tot je in de app op Bevestigen tikt. Die
 # bevestiging komt terug in het dashboard, en andersom stopt bevestigen in het
 # dashboard de telefoon. Storingen komen als gewoon bericht met hoge prioriteit.
 #
 # De sleutels horen in .env: AJAXCENTRAL_PUSHOVER_USER (je user key) en
 # AJAXCENTRAL_PUSHOVER_TOKEN (de API token van een eigen "application").
-# Mag naast Matrix aan staan; dan gaan beide.
 # ─────────────────────────────────────────────────────────────────────────────
 pushover:
   enabled: false
-  # Welke alarmcategorieën een noodmelding geven; de rest is een gewoon bericht.
+  # Welke alarmcategorieën een noodmelding geven; de rest is een gewoon
+  # bericht. Let op: alleen events met ernst "alarm" tellen mee; een storing in
+  # een van deze categorieën niet.
+  #
+  # "gas" en "heat" staan hier bewust naast "fire": een Ajax FireProtect Plus
+  # meldt rook als FA, koolmonoxide als GA en hitte als KA. Wie alleen "fire"
+  # laat afgaan, mist twee derde van wat diezelfde melder detecteert.
+  #
+  # "supervision" is de zelfgemaakte melding dat de hub niet meer reageert —
+  # stroomuitval of een doorgeknipte kabel. Haal die er niet uit.
+  #
+  # Alle categorieen: burglary, fire, gas, heat, water, panic, medical,
+  # tamper, arming, power, battery, rf, communication, supervision, access,
+  # test, config, system, unknown
   categories: ["burglary", "fire", "gas", "heat", "panic", "medical", "supervision"]
   sound: "siren"           # zie pushover.net/api#sounds
   retry_seconds: 30        # herhaal-interval op de telefoon (minimaal 30, eis van Pushover)

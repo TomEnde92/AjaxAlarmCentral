@@ -2,7 +2,7 @@
 
 Bewuste keuze voor een eigen mini-bus in plaats van een externe broker: het
 volume is een handvol events per dag en alle abonnees draaien in hetzelfde
-proces. Een trage abonnee (bijvoorbeeld Matrix met een haperend netwerk) mag
+proces. Een trage abonnee (bijvoorbeeld Pushover met een haperend netwerk) mag
 de ontvangst van nieuwe hub-events nooit blokkeren, dus elke abonnee heeft een
 eigen begrensde wachtrij.
 """

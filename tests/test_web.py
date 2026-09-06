@@ -213,7 +213,7 @@ async def test_status_toont_mislukte_meldingen(context: WebContext) -> None:
     """Een centrale die stil faalt geeft schijnveiligheid."""
     alarm = _alarm()
     await context.db.store_event(alarm)
-    await context.db.log_notification(alarm.db_id, "matrix", "failed", "geen verbinding")
+    await context.db.log_notification(alarm.db_id, "pushover", "failed", "geen verbinding")
 
     async with await _client(context) as client:
         await client.post("/api/login", json={"username": "admin", "password": PASSWORD})
@@ -222,7 +222,7 @@ async def test_status_toont_mislukte_meldingen(context: WebContext) -> None:
         assert status["open_alarms"] == 1
 
 
-async def test_zelftest_zonder_matrix_geeft_nette_fout(context: WebContext) -> None:
+async def test_zelftest_zonder_meldkanaal_geeft_nette_fout(context: WebContext) -> None:
     async with await _client(context) as client:
         await client.post("/api/login", json={"username": "admin", "password": PASSWORD})
         assert (await client.post("/api/selftest/ring")).status_code == 503

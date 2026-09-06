@@ -16,8 +16,8 @@ Een zelfgehoste alarmcentrale voor een Ajax Security systeem, draaiend op een
 Raspberry Pi 5. De Ajax hub kan **rechtstreeks naar een meldkamer melden via
 het SIA DC-09 protocol**, buiten de Ajax Cloud om. Deze centrale ís die
 meldkamer: ze ontvangt alle events van de hub, bewaart ze, toont ze in een live
-dashboard, en **belt de eigenaar via Matrix/Element X** bij inbraak, brand,
-koolmonoxide of paniek — met herhaling tot bevestiging.
+dashboard, en **laat de telefoon van de eigenaar afgaan via Pushover** bij
+inbraak, brand, koolmonoxide of paniek — met herhaling tot bevestiging.
 
 Geen Ajax Translator-hardware of PRO-abonnement nodig; een admin van de space
 stelt het in de gewone Ajax-app in (Beveiligingsbedrijven → Meldkamer).
@@ -41,9 +41,9 @@ Ajax Hub ──SIA DC-09 (TCP/UDP, AES-128)──► Pi 5 :10000
                                     │      event bus     │
                                     └──┬────────┬────────┬┘
                                        │        │        │
-                                 WebSocket   Matrix    MQTT
-                                (dashboard) (bericht + (Home Assistant
-                                             oproep)     discovery)
+                                 WebSocket  Pushover   MQTT
+                                (dashboard) (noodmeld- (Home Assistant
+                                             ing)        discovery)
 ```
 
 Bewuste keuze: geen message broker, geen losse workers. Het volume is een
@@ -86,28 +86,21 @@ src/ajaxcentral/
   state.py           afgeleide status (armed/disarmed, storingen, hub online)
   pipeline.py        opslaan → status bijwerken → verspreiden
   watchdog.py        stilte van de hub = zelf een alarm
-  selftest.py        wekelijkse testoproep, bewaakt of bevestigd
+  selftest.py        wekelijkse testmelding, bewaakt of bevestigd
   tasks.py           cancel_task-helper
   notify/
     base.py          Notifier-protocol, plug-in registry
-    rules.py         wat belt, wat meldt, dedupe, stille uren
+    rules.py         wat gemeld wordt: drempel, dedupe, stille uren
+    text.py          kanaalonafhankelijke titel en feitenregels
     dispatcher.py    luistert op de bus, roept notifiers aan
-    matrix/
-      client.py      httpx-wrapper Matrix Client-Server API
-      message.py     tekstmelding-opmaak
-      ring.py        4 ring-payload-varianten (MSC4075), m.rtc.member
-      escalation.py  herhaald bellen tot bevestiging, hervat na herstart
-      notifier.py    voegt bovenstaande samen
+    pushover.py      noodmelding, ontvangstbewijs, bevestiging over en weer
   mqtt/publisher.py  MQTT + Home Assistant discovery, last will
   web/
     app.py           FastAPI: REST + WebSocket + sessie-login
     auth.py           PBKDF2 wachtwoord-hashing
     static/          dashboard (index.html, app.js, style.css)
 
-tests/               90 tests; fake_hub.py bouwt échte SIA DC-09-frames
-tools/
-  ringtest.py        vuurt ring-varianten af om Element X af te stellen
-  setup_pushrule.py  zet de push-regel die überhaupt een push oplevert
+tests/               104 tests; fake_hub.py bouwt échte SIA DC-09-frames
 deploy/
   install.sh         installatiescript voor een verse Pi
   ajaxcentral.service systemd-unit als Docker-alternatief
@@ -127,26 +120,29 @@ dan `ping_interval × offline_factor` (standaard 2,5×) stil, dan genereert de
 centrale zélf een alarm dat door de hele belketen loopt. Bij hervat contact
 volgt automatisch een herstelmelding.
 
-### Ring-payloads staan als data, niet als code (`notify/matrix/ring.py`)
-Element X ondersteunt geen klassieke Matrix-VoIP meer; rinkelen loopt via
-MatrixRTC met een event uit **MSC4075**, een specificatie die nog niet vastligt
-(hernoemd van `m.call.notify` naar `m.rtc.notification`). Op Android is
-rinkelen bovendien aantoonbaar wisselvallig
-([element-x-android#4390](https://github.com/element-hq/element-x-android/issues/4390),
-open, *major severity*). Daarom: vier varianten als losse recepten, elk met
-beide mogelijke veldnamen tegelijk, en `tools/ringtest.py` om empirisch vast
-te stellen welke op een specifiek toestel werkt — dat kán niet uit
-documentatie afgeleid worden.
+### Het meldkanaal is Pushover, en de belronde zit in de dienst (`notify/pushover.py`)
+Oorspronkelijk liep het bellen via Matrix/Element X. Dat is op 6 september 2026
+verwijderd: rinkelen loopt daar via MatrixRTC met een event uit MSC4075, een
+specificatie die niet vastligt, en op Android was het aantoonbaar wisselvallig.
+Welke variant werkte kon alleen empirisch per toestel vastgesteld worden. Zie
+`bouwverslag.md` voor die geschiedenis.
 
-### Alleen echte alarmen bellen, in de juiste categorieën
-`gas` en `heat` bellen net als `fire`: een Ajax FireProtect Plus meldt rook als
+Pushover doet hetzelfde met minder bewegende delen: één HTTPS-verzoek levert een
+noodmelding (prioriteit 2) die de telefoon zelf blijft herhalen tot iemand in de
+app bevestigt. Het ontvangstbewijs maakt die bevestiging opvraagbaar, dus de
+lus is aan twee kanten dicht: bevestigen in de app zet het dashboard bij, en
+bevestigen in het dashboard trekt de noodmelding in. Pushover geeft na maximaal
+drie uur op; daarna stuurt de centrale zelf een nieuwe, tot iemand bevestigt.
+
+### Alleen echte alarmen laten de telefoon afgaan, in de juiste categorieën
+`gas` en `heat` tellen net als `fire`: een Ajax FireProtect Plus meldt rook als
 `FA`, CO als `GA`, hitte als `KA` — drie codes uit één melder. Stille uren en
 deduplicatie mogen nooit een event met ernst `alarm` onderdrukken; dat is hard
 ingebouwd, niet via config uit te zetten.
 
 ### Escalatie en status overleven een herstart
 Openstaande alarmen staan in de database, niet in het geheugen. Bij opstarten
-wordt zowel de belronde hervat (`resume_open_alarms`) als de afgeleide status
+wordt zowel de noodmelding hervat (`resume_open_alarms`) als de afgeleide status
 (armed/disarmed, storingen) herbouwd uit het logboek. Een centrale die na een
 reboot denkt dat alles in orde is, is gevaarlijker dan geen centrale.
 
@@ -160,11 +156,11 @@ in `partition`. Contact ID gebruikt bovendien andere hersteltcodes (`BH` i.p.v.
 code binnenkomen.
 
 ### Falen is altijd zichtbaar
-Elke mislukte melding en belpoging staat in de database en verschijnt als
+Elke mislukte melding en noodmelding staat in de database en verschijnt als
 waarschuwing op het dashboard. MQTT heeft een *last will*, zodat Home Assistant
 bij uitval de entiteiten grijs maakt in plaats van de laatst bekende status te
-blijven tonen. Een wekelijkse zelftest belt zichzelf, omdat een kapot push-pad
-anders pas opvalt op het moment dat het ertoe doet.
+blijven tonen. Een wekelijkse zelftest stuurt zichzelf een melding, omdat een
+kapot push-pad anders pas opvalt op het moment dat het ertoe doet.
 
 Voor de volledige redenering achter elke keuze, inclusief wat er tijdens het
 bouwen fout bleek te zitten en gecorrigeerd is: zie `docs/bouwverslag.md`.
@@ -173,29 +169,25 @@ bouwen fout bleek te zitten en gecorrigeerd is: zie `docs/bouwverslag.md`.
 
 ## Status
 
-- **90 tests, allemaal groen.** `pytest`, `ruff` (lint+format) en `mypy` zijn
-  schoon over 31 bronbestanden.
+- **104 tests, allemaal groen.** `pytest` en `ruff` (lint+format) zijn schoon.
 - **End-to-end getest** met `tests/fake_hub.py`, dat échte SIA DC-09-frames
   bouwt (correcte CRC-16/ARC en AES-128-CBC) — inbraak, brand, CO, paniek,
   sabotage, lekkage, in/uitschakelen, batterij, onbekende code, kapotte CRC,
   verkeerde sleutel.
 - **Dashboard visueel gecontroleerd** in Chromium, desktop en mobiel.
-- **Niet geverifieerd:** de Docker-build zelf (geen Docker-daemon beschikbaar
-  in de bouwomgeving) en of een oproep daadwerkelijk op een echt Android-
-  toestel rinkelt — dat laatste kan per ontwerp alleen op het toestel zelf
-  vastgesteld worden, vandaar `tools/ringtest.py` als verplichte eerste stap.
+- **In bedrijf** op de Pi sinds 1 september 2026, met Pushover als meldkanaal.
+  Noodmelding en bevestiging over en weer zijn op een echt toestel getest.
 
 ---
 
 ## Wat er nog niet in zit
 
 - MotionCam-foto's (SIA-event 732) — buiten scope
-- Een gesproken stem in het gesprek — de haak (`m.rtc.member`-lidmaatschap)
-  zit er, maar vraagt een self-hosted Element Call/LiveKit-stack
 - GPIO/sirene-aansturing — buiten scope
 - Aansturing van het Ajax-systeem zelf — SIA DC-09 is eenrichtingsverkeer
-- Een tweede meldkanaal naast Matrix — bewust niet gekozen; de wekelijkse
-  zelftest is het tegenwicht daarvoor
+- Een tweede meldkanaal naast Pushover — de registry in `notify/base.py` is
+  ervoor gemaakt, maar er is er nog maar één; de wekelijkse zelftest is
+  voorlopig het tegenwicht
 
 ---
 
@@ -204,8 +196,7 @@ bouwen fout bleek te zitten en gecorrigeerd is: zie `docs/bouwverslag.md`.
 ```bash
 # Tests, lint, types
 .venv/bin/python -m pytest -q
-.venv/bin/ruff check src/ tests/ tools/
-.venv/bin/mypy
+.venv/bin/ruff check src/ tests/
 
 # Alles doorlopen zonder Ajax-hardware
 python tests/fake_hub.py --list
@@ -213,10 +204,6 @@ python tests/fake_hub.py --scenario burglary
 
 # Installatie op een verse Pi
 bash deploy/install.sh
-
-# Uitzoeken welke Matrix ring-variant werkt op een specifiek toestel
-python tools/setup_pushrule.py
-python tools/ringtest.py --all
 ```
 
 ---
@@ -226,8 +213,9 @@ python tools/ringtest.py --all
 Bruikbare vervolgvragen in een chat die dit document als context heeft:
 - "Voeg [categorie/kanaal/uitbreiding] toe" — de plug-in-registry in
   `notify/base.py` is er voor gemaakt.
-- "Waarom werkt [ring-variant] niet op mijn toestel?" — begin met de uitkomst
-  van `tools/ringtest.py --all`, en check `element-x-android#4390`.
+- "Waarom komt de melding niet aan op mijn toestel?" — begin bij het logboek
+  van de centrale (staat de melding als `sent` of `failed`?) en daarna bij de
+  Pushover-app: ingelogd, meldingen toegestaan, accu-optimalisatie uit.
 - "De hub stuurt code X, wat betekent dat?" — kijk in `ajax_codes.py`; staat
   hij er niet in, dan is de heuristiek in `describe()` aan de beurt.
 - "Kan dit ook [ander protocol/toestel/notificatiekanaal]?" — dat raakt vrijwel

@@ -1,9 +1,9 @@
 """Kanaalonafhankelijke basis voor meldingen.
 
-Er is nu één kanaal (Matrix), maar de indeling is bewust een registry. Wie
-Android gebruikt zonder tweede kanaal, hangt namelijk volledig aan één
-push-pad; een tweede kanaal toevoegen moet daarom een kwestie zijn van een
-klasse plus een configblok, niet van een verbouwing.
+Er is nu één kanaal (Pushover), maar de indeling is bewust een registry. Wie
+maar één meldkanaal heeft, hangt namelijk volledig aan één push-pad; een tweede
+kanaal toevoegen moet daarom een kwestie zijn van een klasse plus een
+configblok, niet van een verbouwing.
 """
 
 from __future__ import annotations

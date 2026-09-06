@@ -20,7 +20,6 @@ from .models import AlarmEvent
 from .mqtt import MqttPublisher
 from .notify.base import NotifierRegistry
 from .notify.dispatcher import NotificationDispatcher
-from .notify.matrix.notifier import MatrixNotifier
 from .notify.pushover import PushoverNotifier
 from .pipeline import EventPipeline
 from .receiver import Receiver
@@ -72,7 +71,6 @@ class Application:
         self.receiver = Receiver(config, self.pipeline.submit)
         self.watchdog = Watchdog(config, self.state, self.pipeline, db=self.db)
         self.registry = NotifierRegistry()
-        self.matrix: MatrixNotifier | None = None
         self.pushover: PushoverNotifier | None = None
         self.selftest: SelfTest | None = None
         self.mqtt: MqttPublisher | None = None
@@ -90,12 +88,7 @@ class Application:
         # binnenkomend bericht overschreven worden door de oude geschiedenis.
         await self.state.restore_from_db(self.db)
 
-        ringers: list[MatrixNotifier | PushoverNotifier] = []
-        if self.config.matrix.enabled:
-            self.matrix = MatrixNotifier(self.config, self.db)
-            await self.matrix.start()
-            self.registry.register(self.matrix)
-            ringers.append(self.matrix)
+        ringers: list[PushoverNotifier] = []
         if self.config.pushover.enabled:
             self.pushover = PushoverNotifier(
                 self.config, self.db, on_acknowledged=self._on_acknowledged
@@ -110,13 +103,11 @@ class Application:
                 self.pushover.on_selftest_acknowledged = self.selftest.acknowledge_latest
         else:
             _LOGGER.warning(
-                "Geen meldkanaal aan in config (matrix en pushover staan uit): er gaan "
-                "GEEN meldingen uit en je telefoon gaat niet bij een alarm."
+                "Geen meldkanaal aan in config (pushover staat uit): er gaan GEEN "
+                "meldingen uit en je telefoon gaat niet bij een alarm."
             )
 
-        self.dispatcher = NotificationDispatcher(
-            self.config, self.bus, self.registry, matrix=self.matrix
-        )
+        self.dispatcher = NotificationDispatcher(self.config, self.bus, self.registry)
         await self.dispatcher.start()
 
         if self.config.mqtt.enabled:
@@ -131,9 +122,7 @@ class Application:
             await self.selftest.start()
 
         # Alarmen die nog openstonden bij de vorige afsluiting krijgen opnieuw
-        # een belronde. Een herstart mag een lopend alarm niet stilzetten.
-        if self.matrix is not None:
-            await self.matrix.escalation.resume_open_alarms()
+        # een noodmelding. Een herstart mag een lopend alarm niet stilzetten.
         if self.pushover is not None:
             await self.pushover.resume_open_alarms()
 
@@ -148,7 +137,6 @@ class Application:
             state=self.state,
             selftest=self.selftest,
             receiver=self.receiver,
-            matrix=self.matrix,
             on_acknowledge=self._on_acknowledged,
             submit=self.pipeline.submit,
         )
@@ -166,8 +154,6 @@ class Application:
 
     def _on_acknowledged(self, event_id: int) -> None:
         """Eén bevestiging, waar die ook vandaan komt, laat alle kanalen ophouden."""
-        if self.matrix is not None:
-            self.matrix.escalation.cancel_for(event_id)
         if self.pushover is not None:
             self.pushover.cancel_for(event_id)
 

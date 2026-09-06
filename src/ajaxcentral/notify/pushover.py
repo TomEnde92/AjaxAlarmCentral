@@ -1,18 +1,16 @@
 """Pushover als meldkanaal: bericht, noodmelding en bevestiging over en weer.
 
-Pushover is het eenvoudige alternatief voor Matrix: een app op je telefoon en
-één HTTPS-verzoek per melding, zonder homeserver, push-regels of instabiele
-ring-events. Een alarm gaat als *noodmelding* (prioriteit 2): een hard geluid
+Eén app op je telefoon en één HTTPS-verzoek per melding. Een alarm gaat als
+*noodmelding* (prioriteit 2): een hard geluid
 dat door Niet Storen heen gaat en dat Pushover zelf blijft herhalen tot je in
-de app op Bevestigen tikt. Daarmee neemt Pushover de belronde over die bij
-Matrix in de escalatie zit.
+de app op Bevestigen tikt.
 
-Het belangrijkste verschil met Matrix is de terugkoppeling. Pushover geeft bij
-een noodmelding een ontvangstbewijs (receipt) terug waarmee we kunnen navragen
-óf en waar het alarm bevestigd is. Die bevestiging zetten we in de database,
-zodat het dashboard het ziet en een eventuele Matrix-belronde stopt. Andersom
-geldt hetzelfde: bevestig je in het dashboard, dan trekken we het bewijs in en
-houdt de telefoon op met herhalen.
+Wat dit kanaal bruikbaar maakt voor een alarmcentrale is de terugkoppeling.
+Pushover geeft bij een noodmelding een ontvangstbewijs (receipt) terug waarmee
+we kunnen navragen óf en waar het alarm bevestigd is. Die bevestiging zetten we
+in de database, zodat het dashboard het ziet. Andersom geldt hetzelfde:
+bevestig je in het dashboard, dan trekken we het bewijs in en houdt de telefoon
+op met herhalen.
 
 Pushover geeft een noodmelding na hooguit drie uur op. Een alarm mag niet
 stilvallen omdat niemand het gehoord heeft, dus zodra een noodmelding verloopt
@@ -66,7 +64,7 @@ class PushoverNotifier:
         self._settings = config.pushover
         self._db = db
         #: Wordt aangeroepen als een alarm op de telefoon bevestigd is, zodat
-        #: andere kanalen (de Matrix-belronde) kunnen stoppen.
+        #: andere kanalen kunnen stoppen.
         self._on_acknowledged = on_acknowledged
         #: Gezet door main zodra de zelftest bestaat; sluit de testlus.
         self.on_selftest_acknowledged: Callable[[str], Awaitable[Any]] | None = None

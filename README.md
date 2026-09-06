@@ -4,8 +4,8 @@ Een eigen meldkamer voor je Ajax Security systeem, draaiend op een Raspberry Pi 
 
 De Ajax hub kan **rechtstreeks naar een meldkamer melden via het SIA DC-09
 protocol**, buiten de Ajax Cloud om. Deze centrale is die meldkamer: hij vangt
-alle events van je hub op, bewaart ze, toont ze in een live dashboard, en **belt
-je telefoon via Matrix** bij inbraak, brand of paniek.
+alle events van je hub op, bewaart ze, toont ze in een live dashboard, en laat
+**je telefoon afgaan** bij inbraak, brand of paniek.
 
 ```
 Ajax Hub ──SIA DC-09 (TCP/UDP, AES-128)──► Raspberry Pi
@@ -13,19 +13,19 @@ Ajax Hub ──SIA DC-09 (TCP/UDP, AES-128)──► Raspberry Pi
                                         ontvangst + vertaling
                                               │
                              ┌────────────────┼────────────────┐
-                        logboek +        Matrix: bericht    MQTT /
-                        dashboard        en oproep 📞    Home Assistant
+                        logboek +        Pushover:          MQTT /
+                        dashboard        noodmelding 📞  Home Assistant
 ```
 
 ## Wat het doet
 
 - **Ontvangt** SIA DC-09 berichten (SIA-DCS én Contact ID), versleuteld met AES-128
 - **Vertaalt** de ruwe SIA-codes naar Nederlandse meldingen met de namen van jouw melders
-- **Belt je telefoon** via Matrix/Element X bij een alarm, en blijft bellen tot je bevestigt
+- **Laat je telefoon afgaan** via Pushover bij een alarm, en blijft dat doen tot je bevestigt
 - **Bewaakt de hub zelf**: blijft die te lang stil, dan is dát het alarm
 - **Toont alles** in een web-dashboard: status, logboek, openstaande alarmen, diagnostiek
 - **Publiceert naar MQTT** met Home Assistant discovery
-- **Test zichzelf** wekelijks, zodat een kapot belpad opvalt vóór het misgaat
+- **Test zichzelf** wekelijks, zodat een kapot meldpad opvalt vóór het misgaat
 
 ---
 
@@ -34,7 +34,7 @@ Ajax Hub ──SIA DC-09 (TCP/UDP, AES-128)──► Raspberry Pi
 - Een hub met **OS Malevich 2.7 of nieuwer** (Hub 2, Hub 2 Plus, Hub Hybrid, Hub Plus)
 - Je bent **admin** van de space in de Ajax-app — een PRO-abonnement is niet nodig
 - Een Raspberry Pi met een **vast IP-adres**, want de hub kent alleen dat adres
-- Voor het bellen: een **Matrix-account** (eigen homeserver of matrix.org) en Element X
+- Voor de meldingen: een **Pushover-account** en de app op je telefoon (eenmalig een paar euro per platform)
 
 ---
 
@@ -59,8 +59,8 @@ toont het precies wat je in de Ajax-app moet invullen (IP, poort, objectnummer,
 encryptiesleutel).
 
 Wat het **niet** voor je doet: de namen van je melders in `config.yaml` zetten,
-en het bellen via Matrix instellen — dat laatste vraagt om een bewuste
-afweging, zie [Het bellen instellen](#het-bellen-instellen) hieronder.
+en het meldkanaal instellen — zie [Meldingen instellen](#meldingen-instellen)
+hieronder. Zonder dat laatste gaat je telefoon niet bij een alarm.
 
 ### Handmatig
 
@@ -86,7 +86,7 @@ openssl rand -hex 32
 
 Zet die in `.env`, samen met een zelfgekozen encryptiesleutel van **16, 24 of 32
 tekens** voor het SIA-verkeer. Pas daarna `config.yaml` aan: het IP van je Pi,
-de namen van je melders, en je Matrix-gegevens.
+de namen van je melders, en je Pushover-sleutels.
 
 #### Draaien met Docker
 
@@ -136,108 +136,71 @@ hebt als het niet meteen werkt:
 
 ---
 
-## Het bellen instellen
+## Meldingen instellen
 
 > **Lees dit deel, ook als de rest vanzelf ging.** Dit is het onderdeel dat het
 > vaakst stilletjes stukgaat.
 
-Element X ondersteunt geen klassieke Matrix 1-op-1 VoIP meer. Rinkelen loopt via
-MatrixRTC, aangestuurd door een event uit **MSC4075** — en die specificatie ligt
-nog niet vast. Het event heette eerst `m.call.notify` en is later
-`m.rtc.notification` geworden. Welke variant jouw Element X-build begrijpt, is
-niet uit documentatie af te leiden; dat moet je meten.
+Meldingen lopen via **Pushover**: één app op je telefoon en één HTTPS-verzoek
+per melding. Een alarm gaat als *noodmelding*
+(prioriteit 2): een hard geluid dat door Niet Storen heen gaat, door Pushover
+elke 30 seconden herhaald tot je in de app op Bevestigen tikt. Pushover geeft
+één noodmelding na drie uur op; de centrale stuurt dan een nieuwe, en blijft
+dat doen tot iemand bevestigt — als een oproeppieper.
 
-Daarnaast staat er bij element-x-android een **open issue met label *major
-severity*** ([#4390](https://github.com/element-hq/element-x-android/issues/4390)):
-oproepen in DM-rooms komen op Android soms niet of pas na minuten aan.
+Die bevestiging komt terug in het dashboard, en andersom laat bevestigen in het
+dashboard de telefoon ophouden. Storingen komen als gewoon bericht met hoge
+prioriteit; wat een noodmelding wordt en wat niet, staat in
+`pushover.categories`.
 
-Daarom werkt het instellen in deze volgorde:
+### 1. Maak een Pushover-application
 
-### 1. Maak een onversleutelde room
+Log in op [pushover.net](https://pushover.net), noteer je **user key**, en maak
+onder *Your Applications* een application aan. Die geeft je een **API token**.
 
-Maak een 1-op-1 room tussen je bot-account en jezelf, en zet **versleuteling
-uit**. Versleutelde rooms geven push-problemen, en zonder push rinkelt je
-telefoon niet.
+### 2. Zet de sleutels in `.env`
 
-### 2. Zet de push-regels
-
-```bash
-export AJAXCENTRAL_MATRIX_OWN_TOKEN=<token van JOUW eigen account>
-python tools/setup_pushrule.py
+```
+AJAXCENTRAL_PUSHOVER_USER=<je user key>
+AJAXCENTRAL_PUSHOVER_TOKEN=<de API token van je application>
 ```
 
-Zonder een push-regel die op het ring-event matcht, komt er geen push binnen.
-Voor de onstabiele event-types bestaat vrijwel zeker geen standaardregel.
-
-### 3. Zoek uit welke variant werkt
-
-```bash
-export AJAXCENTRAL_MATRIX_TOKEN=<token van het bot-account>
-python tools/ringtest.py --all
-```
-
-Het script stuurt eerst een gewoon bericht — komt dat niet aan, dan heeft de
-rest geen zin. Daarna probeert het elke variant apart, met pauzes ertussen, en
-vertelt het je wat je in `config.yaml` moet zetten.
-
-Ging je telefoon niet, probeer dan achtereenvolgens:
-
-1. de andere stand van `--no-member-state`
-2. controleer dat de room onversleuteld is en maar twee leden heeft
-3. zet accu-optimalisatie voor Element X uit (Android)
-4. controleer dat Element X op de achtergrond mag draaien en meldingen mag tonen
-
-### 4. Zet Matrix aan en alleen de werkende variant
-
-`matrix.enabled` staat standaard op `false` — pas als je `AJAXCENTRAL_MATRIX_TOKEN`
-in `.env` hebt gezet en weet welke variant werkt, zet je hem aan:
+### 3. Zet Pushover aan
 
 ```yaml
-matrix:
+pushover:
   enabled: true
-  ring:
-    variants:
-      - rtc-notification
-    with_member_state: true
 ```
 
-Daarna `docker compose up -d` om de nieuwe config te laden.
+Daarna `docker compose up -d` om de nieuwe config te laden. Bij het opstarten
+controleert de centrale je sleutels en zet ze in het log, met de toestellen die
+Pushover kent. Werken ze niet, dan zegt hij dat luid — de centrale blijft wel
+draaien en events opslaan.
 
-Meerdere varianten tegelijk laten staan werkt ook, maar levert bij een echt
-alarm dubbele meldingen op.
+### 4. Bewijs dat het werkt
 
-### Eenvoudiger: Pushover in plaats van (of naast) Matrix
+Stuur een testmelding via het tabblad **Meldingen** in het dashboard en bevestig
+hem in de app. Komt hij niet aan, controleer dan:
 
-Wie geen zin heeft in homeservers en ring-varianten, gebruikt Pushover
-(eenmalig een paar euro per platform). Een alarm gaat dan als *noodmelding*:
-hard geluid dat door Niet Storen heen gaat, door Pushover elke 30 seconden
-herhaald tot je in de app op Bevestigen tikt. Pushover geeft één noodmelding na
-drie uur op; de centrale stuurt dan een nieuwe, en blijft dat doen tot iemand
-bevestigt — als een oproeppieper. Die bevestiging komt terug in het dashboard,
-en bevestigen in het dashboard laat de telefoon ophouden. De wekelijkse zelftest
-loopt er ook overheen en wordt vanzelf bevestigd als je in de app tikt.
+1. staat de Pushover-app op je toestel ingelogd met hetzelfde account?
+2. mag de app meldingen tonen, en staat accu-optimalisatie ervoor uit (Android)?
+3. klopt `pushover.device` in `config.yaml`, of laat dat veld leeg voor alle toestellen?
 
-1. Maak op pushover.net een *application* aan en noteer de API token.
-2. Zet je user key en die token in `.env` als `AJAXCENTRAL_PUSHOVER_USER` en
-   `AJAXCENTRAL_PUSHOVER_TOKEN`.
-3. Zet `pushover.enabled: true` in `config.yaml` en herstart.
-4. Stuur een testoproep via het tabblad Meldingen en bevestig hem in de app.
+### Waarom er een wekelijkse testmelding is
 
-### Waarom er een wekelijkse testoproep is
+Er is één meldkanaal. Dat is de opzet met het grootste risico op een gemist
+alarm: gaat het push-pad stuk — een ingetrokken token, een app die is
+uitgelogd, een toestel dat de meldingen niet meer doorlaat — dan merk je daar
+niets van, want er gebeurt precies hetzelfde als wanneer alles in orde is:
+niets.
 
-Je hebt Android gekozen zonder tweede meldkanaal. Dat is de combinatie met het
-grootste risico op een gemist alarm: gaat het push-pad stuk — een verlopen
-token, een gewijzigde room, een gateway die je toestel niet meer kent — dan
-merk je daar niets van, want er gebeurt precies hetzelfde als wanneer alles in
-orde is: niets.
-
-Daarom belt de centrale zichzelf wekelijks. Bevestig je die testoproep niet,
-dan zet het dashboard een waarschuwing. Zo ontdek je een kapot belpad op een
-dinsdagmiddag in plaats van tijdens een inbraak.
+Daarom stuurt de centrale zichzelf wekelijks een testmelding. Bevestig je die
+niet, dan zet het dashboard een waarschuwing. Zo ontdek je een kapot meldpad op
+een dinsdagmiddag in plaats van tijdens een inbraak.
 
 ### Een echt brand- of inbraakalarm nabootsen
 
-De testoproep bewijst alleen dat je telefoon bereikbaar is. Of een *alarm*
+De testmelding bewijst alleen dat je telefoon bereikbaar is. Of een *alarm*
 de hele keten doorloopt — pijplijn, logboek, noodmelding met sirene, open
 alarm op het dashboard, bevestiging over en weer — test je met een
 nagebootst alarm: tabblad Meldingen → "Een echt alarm nabootsen". Kies brand of
@@ -264,8 +227,8 @@ AES-128-CBC — en stuurt ze naar je draaiende centrale.
 
 ```bash
 python tests/fake_hub.py --list
-python tests/fake_hub.py --scenario burglary    # moet bellen
-python tests/fake_hub.py --scenario fire        # moet bellen
+python tests/fake_hub.py --scenario burglary    # moet een noodmelding geven
+python tests/fake_hub.py --scenario fire        # moet een noodmelding geven
 python tests/fake_hub.py --scenario co          # CO uit dezelfde rookmelder
 python tests/fake_hub.py --scenario arm-disarm  # alleen logboek
 python tests/fake_hub.py --scenario bad-crc     # moet genegeerd worden
@@ -289,7 +252,7 @@ De belangrijkste:
 |---|---|
 | `sia.offline_factor` | Na `ping_interval × deze factor` zonder bericht geldt de hub als offline. Lager betekent sneller alarm bij sabotage, maar meer kans op vals alarm. |
 | `devices` / `partitions` / `users` | Namen bij de nummers. Zonder deze tabellen krijg je "apparaat 03" in plaats van "Bewegingsmelder woonkamer". |
-| `matrix.ring.categories` | Welke categorieën bellen. `gas` en `heat` staan bewust naast `fire`: een FireProtect Plus meldt rook als `FA`, koolmonoxide als `GA` en hitte als `KA`. |
+| `pushover.categories` | Welke categorieën een noodmelding geven. `gas` en `heat` staan bewust naast `fire`: een FireProtect Plus meldt rook als `FA`, koolmonoxide als `GA` en hitte als `KA`. |
 | `notifications.min_severity` | Drempel voor tekstmeldingen. Raakt nooit een alarm. |
 | `notifications.quiet_hours` | Stille uren. Onderdrukken nooit een alarm — dat is hard ingebouwd. |
 | `arming.night_start` / `arming.night_end` | Nachtvenster. Ajax stuurt voor de nachtmodus altijd `NL`; binnen dit venster heet dat "Nachtinschakeling", daarbuiten "Deelinschakeling". |
@@ -351,7 +314,7 @@ Het wachtwoord van het dashboard blijft de enige toegangscontrole voor de
 webinterface zelf; Tailscale zorgt alleen dat je er via een versleuteld,
 geauthenticeerd netwerk bij kunt zonder poort 8080 op je router open te zetten.
 
-Wil je dat de link in Matrix-berichten ook van buitenshuis werkt, zet dan
+Wil je dat de link in de meldingen ook van buitenshuis werkt, zet dan
 `web.base_url` in `config.yaml` op het Tailscale-adres in plaats van het
 LAN-IP, en herstart met `docker compose up -d`.
 
@@ -371,12 +334,9 @@ tenzij je het bewust publiek wilt maken).
 
 - **MotionCam-foto's.** Ajax kan foto's meesturen als SIA-event 732; die worden
   nu niet verwerkt.
-- **Een stem in het gesprek.** Neem je de oproep op, dan is het gesprek leeg —
-  je weet al dat het alarm is, en de details staan als bericht in dezelfde room.
-  Om er een gesproken melding in te krijgen is een self-hosted Element Call-stack
-  nodig (LiveKit SFU plus auth-service) en een headless client op de Pi. De haak
-  daarvoor zit al in `ring.py`: het `m.rtc.member` lidmaatschap dat nu leeg
-  wordt aangemeld, wordt dan een echte deelnemer.
+- **Een tweede meldkanaal.** Alles hangt aan Pushover. De meldlaag is een
+  plug-in-registry, dus een tweede weg (ntfy, e-mail, SMS) is een klasse in
+  `src/ajaxcentral/notify/` plus een blok in de config — maar hij is er nog niet.
 - **Aansturing van je systeem.** De centrale luistert alleen; hij kan je Ajax
   systeem niet in- of uitschakelen. SIA DC-09 is eenrichtingsverkeer.
 
@@ -398,8 +358,8 @@ Ajax-systemen is getest. Wat hier gebouwd is, is de laag daarboven.
 | `pipeline.py` | Opslaan, status bijwerken, verspreiden |
 | `state.py` | Afgeleide status, herbouwd uit het logboek na een herstart |
 | `watchdog.py` | Stilte van de hub omzetten in een alarm |
-| `notify/matrix/` | Bericht, oproep en escalatie |
-| `selftest.py` | Bewaakt of het belpad nog werkt |
+| `notify/` | Meldregels, tekst en het Pushover-kanaal |
+| `selftest.py` | Bewaakt of het meldpad nog werkt |
 | `web/` | Dashboard en API |
 
 ---
@@ -415,5 +375,4 @@ wat er wel en niet geverifieerd is.
 - [Ajax: hub rechtstreeks op de CMS via SIA DC-09](https://support.ajax.systems/en/how-to-use-sia-for-cms-connection/)
 - [Ajax: Cloud signaling](https://support.ajax.systems/en/manuals/cloud-signaling/)
 - [pysiaalarm](https://github.com/eavanvalkenburg/pysiaalarm)
-- [MSC4075: MatrixRTC call ringing](https://github.com/matrix-org/matrix-spec-proposals/pull/4075)
-- [element-x-android#4390: ringing arrives late or not at all](https://github.com/element-hq/element-x-android/issues/4390)
+- [Pushover API](https://pushover.net/api)

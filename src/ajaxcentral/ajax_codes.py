@@ -7,7 +7,7 @@ bruikbaar maakt:
 
 * een **categorie** waarop de belregels filteren (inbraak, brand, sabotage, ...)
 * een **ernst** die bepaalt of er een melding of een oproep uitgaat
-* een **Nederlandse titel** voor dashboard en Matrix-bericht
+* een **Nederlandse titel** voor dashboard en melding
 
 Codes die hier niet in staan worden niet weggegooid: `describe()` leidt dan een
 categorie en ernst af uit de Engelse omschrijving van pysiaalarm. Dat is bewust,
@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pysiaalarm.data.data import SIA_CODES
 
 # ── Categorieën ──────────────────────────────────────────────────────────────
-# Deze namen komen terug in config.yaml onder matrix.ring.categories.
+# Deze namen komen terug in config.yaml onder pushover.categories.
 
 CATEGORY_BURGLARY = "burglary"
 CATEGORY_FIRE = "fire"

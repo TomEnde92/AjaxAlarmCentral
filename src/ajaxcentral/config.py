@@ -27,8 +27,8 @@ SEVERITY_ORDER: dict[str, int] = {
     "alarm": 5,
 }
 
-#: Alarmcategorieën die standaard een oproep of noodmelding opleveren, en niet
-#: alleen een bericht. Gedeeld door Matrix en Pushover.
+#: Alarmcategorieën die standaard een noodmelding opleveren, en niet alleen een
+#: bericht.
 DEFAULT_RING_CATEGORIES: tuple[str, ...] = (
     "burglary",
     "fire",
@@ -103,26 +103,8 @@ class WebConfig(BaseModel):
         return v.rstrip("/")
 
 
-class RingConfig(BaseModel):
-    enabled: bool = True
-    variants: list[str] = Field(
-        default_factory=lambda: [
-            "rtc-notification",
-            "rtc-notification-unstable",
-            "call-notify-legacy",
-        ]
-    )
-    with_member_state: bool = True
-    lifetime_ms: int = 45000
-    intent: Literal["voice", "video"] = "voice"
-    categories: list[str] = Field(default_factory=lambda: list(DEFAULT_RING_CATEGORIES))
-    # Float zodat tests met fracties kunnen werken zonder een minuut te wachten.
-    retry_interval_seconds: float = 60.0
-    max_attempts: int = 5
-
-
 class PushoverConfig(BaseModel):
-    """Pushover: noodmelding met bevestiging, zonder homeserver of push-regels."""
+    """Pushover: noodmelding met bevestiging over en weer."""
 
     enabled: bool = False
     user_key: str | None = None
@@ -162,41 +144,6 @@ class PushoverConfig(BaseModel):
             raise ValueError(
                 "pushover.enabled staat aan maar AJAXCENTRAL_PUSHOVER_USER en/of "
                 "AJAXCENTRAL_PUSHOVER_TOKEN ontbreekt in .env"
-            )
-        return self
-
-
-class MatrixConfig(BaseModel):
-    enabled: bool = False
-    homeserver: str = ""
-    user_id: str = ""
-    room_id: str = ""
-    target_user_id: str = ""
-    token: str | None = None
-    ring: RingConfig = Field(default_factory=RingConfig)
-
-    @field_validator("homeserver")
-    @classmethod
-    def _strip_slash(cls, v: str) -> str:
-        return v.rstrip("/")
-
-    @model_validator(mode="after")
-    def _check_complete(self) -> MatrixConfig:
-        if not self.enabled:
-            return self
-        missing = [
-            name
-            for name in ("homeserver", "user_id", "room_id", "target_user_id")
-            if not getattr(self, name)
-        ]
-        if missing:
-            raise ValueError(
-                "matrix.enabled staat aan maar deze velden ontbreken in config.yaml: "
-                + ", ".join(missing)
-            )
-        if not self.token:
-            raise ValueError(
-                "matrix.enabled staat aan maar AJAXCENTRAL_MATRIX_TOKEN ontbreekt in .env"
             )
         return self
 
@@ -283,7 +230,7 @@ class MqttConfig(BaseModel):
 
 
 class Config(BaseModel):
-    #: Tijdzone voor tijdstippen in Matrix-berichten. Het dashboard gebruikt de
+    #: Tijdzone voor tijdstippen in meldingen. Het dashboard gebruikt de
     #: tijdzone van je browser en heeft dit niet nodig.
     timezone: str = "Europe/Amsterdam"
     sia: SiaConfig = Field(default_factory=SiaConfig)
@@ -296,7 +243,6 @@ class Config(BaseModel):
     arming: ArmingConfig = Field(default_factory=ArmingConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     web: WebConfig = Field(default_factory=WebConfig)
-    matrix: MatrixConfig = Field(default_factory=MatrixConfig)
     pushover: PushoverConfig = Field(default_factory=PushoverConfig)
     notifications: NotificationsConfig = Field(default_factory=NotificationsConfig)
     selftest: SelftestConfig = Field(default_factory=SelftestConfig)
@@ -373,7 +319,6 @@ def _apply_secrets(raw: dict[str, Any]) -> dict[str, Any]:
     put("sia", "key", "SIA_KEY")
     put("web", "password_hash", "WEB_PASSWORD_HASH")
     put("web", "secret", "WEB_SECRET")
-    put("matrix", "token", "MATRIX_TOKEN")
     put("pushover", "user_key", "PUSHOVER_USER")
     put("pushover", "token", "PUSHOVER_TOKEN")
     put("mqtt", "username", "MQTT_USERNAME")

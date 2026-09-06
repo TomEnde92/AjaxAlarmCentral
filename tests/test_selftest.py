@@ -4,14 +4,25 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-import httpx
 import pytest
 
 from ajaxcentral.config import Config
 from ajaxcentral.db import Database
-from ajaxcentral.notify.matrix.notifier import MatrixNotifier
 from ajaxcentral.selftest import SelfTest
-from test_ring import FakeHomeserver
+
+
+class FakeRinger:
+    """Een meldkanaal dat wel of niet lukt, zonder echt iets te versturen."""
+
+    name = "fake"
+
+    def __init__(self, *, succeeds: bool = True) -> None:
+        self.succeeds = succeeds
+        self.reasons: list[str] = []
+
+    async def test_ring(self, reason: str) -> bool:
+        self.reasons.append(reason)
+        return self.succeeds
 
 
 @pytest.mark.parametrize(
@@ -41,17 +52,12 @@ async def test_status_zonder_uitgevoerde_test(config: Config, db: Database) -> N
     assert status["warning"] is True
 
 
-async def _selftest(config: Config, db: Database, server: FakeHomeserver) -> SelfTest:
-    notifier = MatrixNotifier(config, db)
-    await notifier.client.start()
-    notifier.client._client = httpx.AsyncClient(
-        base_url="https://matrix.test", transport=httpx.MockTransport(server.handler)
-    )
-    return SelfTest(config, db, notifier)
+def _selftest(config: Config, db: Database, *, succeeds: bool = True) -> SelfTest:
+    return SelfTest(config, db, FakeRinger(succeeds=succeeds))
 
 
 async def test_geslaagde_test_wacht_op_bevestiging(config: Config, db: Database) -> None:
-    selftest = await _selftest(config, db, FakeHomeserver())
+    selftest = _selftest(config, db)
     run = await selftest.run_once(kind="manual")
     assert run.ring_status == "sent"
 
@@ -61,7 +67,7 @@ async def test_geslaagde_test_wacht_op_bevestiging(config: Config, db: Database)
 
 
 async def test_bevestigde_test_geeft_groen_licht(config: Config, db: Database) -> None:
-    selftest = await _selftest(config, db, FakeHomeserver())
+    selftest = _selftest(config, db)
     await selftest.run_once(kind="manual")
     await selftest.acknowledge_latest("tom")
 
@@ -72,7 +78,7 @@ async def test_bevestigde_test_geeft_groen_licht(config: Config, db: Database) -
 
 async def test_niet_bevestigde_test_slaat_alarm(config: Config, db: Database) -> None:
     """Zo ontdek je een kapot belpad op een dinsdagmiddag."""
-    selftest = await _selftest(config, db, FakeHomeserver())
+    selftest = _selftest(config, db)
     run = await selftest.run_once(kind="scheduled")
 
     async with db.session() as session:
@@ -90,7 +96,7 @@ async def test_niet_bevestigde_test_slaat_alarm(config: Config, db: Database) ->
 
 
 async def test_mislukte_oproep_is_meteen_een_waarschuwing(config: Config, db: Database) -> None:
-    selftest = await _selftest(config, db, FakeHomeserver(fail_status=403))
+    selftest = _selftest(config, db, succeeds=False)
     run = await selftest.run_once(kind="manual")
     assert run.ring_status == "failed"
 

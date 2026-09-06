@@ -1,9 +1,12 @@
 """Koppelt de eventstroom aan de meldkanalen.
 
-De dispatcher luistert op de bus en beslist per event: alleen loggen, een
-bericht sturen, of bellen. Het versturen gebeurt in losse taken, zodat een
-haperende homeserver de verwerking van volgende events niet ophoudt — precies
-op het moment dat er meerdere melders tegelijk afgaan wil je dat niet.
+De dispatcher luistert op de bus en beslist per event: alleen loggen, of een
+melding sturen. Het versturen gebeurt in losse taken, zodat een haperende
+meldingsdienst de verwerking van volgende events niet ophoudt — precies op het
+moment dat er meerdere melders tegelijk afgaan wil je dat niet.
+
+Of een alarm ook een *noodmelding* wordt die je telefoon laat afgaan, beslist
+het kanaal zelf (zie pushover.categories): dat hangt af van wat het kanaal kan.
 """
 
 from __future__ import annotations
@@ -18,7 +21,6 @@ from ..config import Config
 from ..models import AlarmEvent
 from ..tasks import cancel_task
 from .base import Notifier, NotifierRegistry, NotifyError
-from .matrix.notifier import MatrixNotifier
 from .rules import NotificationRules
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,13 +32,10 @@ class NotificationDispatcher:
         config: Config,
         bus: EventBus[AlarmEvent],
         registry: NotifierRegistry,
-        *,
-        matrix: MatrixNotifier | None = None,
     ) -> None:
         self._config = config
         self._bus = bus
         self._registry = registry
-        self._matrix = matrix
         self._rules = NotificationRules(config)
         self._task: asyncio.Task[None] | None = None
         self._inflight: set[asyncio.Task[None]] = set()
@@ -68,10 +67,6 @@ class NotificationDispatcher:
         if self._rules.should_notify(alarm):
             for notifier in self._registry.notifiers:
                 self._spawn(self._send(notifier, alarm))
-
-        if self._matrix is not None and self._rules.should_ring(alarm):
-            _LOGGER.warning("Belronde gestart voor: %s", alarm.summary())
-            self._spawn(self._matrix.ring_for(alarm))
 
     def _spawn(self, coro: Coroutine[Any, Any, None]) -> None:
         """Start een verzendactie los van de eventstroom.

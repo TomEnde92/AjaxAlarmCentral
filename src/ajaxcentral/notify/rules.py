@@ -1,4 +1,4 @@
-"""Welke events een melding waard zijn, en welke een oproep.
+"""Welke events een melding waard zijn.
 
 Twee regels staan hier bewust niet ter discussie en zijn niet uit te zetten via
 config:
@@ -66,18 +66,3 @@ class NotificationRules:
         if len(self._recent) > 512:
             cutoff = now - timedelta(hours=1)
             self._recent = {k: v for k, v in self._recent.items() if v > cutoff}
-
-    # ── Oproepen ─────────────────────────────────────────────────────────────
-
-    def should_ring(self, alarm: AlarmEvent) -> bool:
-        """Bellen doen we alleen bij een echt alarm in een gekozen categorie.
-
-        Een storing in de brandmelder is een bericht; een brandalarm is een
-        telefoontje. Dat onderscheid staat hier, en niet in de belcode zelf.
-        """
-        ring = self._config.matrix.ring
-        if not ring.enabled:
-            return False
-        if not alarm.is_alarm:
-            return False
-        return alarm.category in ring.categories

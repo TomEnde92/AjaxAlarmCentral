@@ -63,7 +63,6 @@ class WebContext:
     state: SystemState
     selftest: SelfTest | None = None
     receiver: Any = None
-    matrix: Any = None
     on_acknowledge: Any = None
     #: Levert een zelfgemaakt event in bij de pijplijn (pipeline.submit).
     submit: Any = None
@@ -71,14 +70,7 @@ class WebContext:
 
 def _channels(config: Config) -> list[str]:
     """Namen van de meldkanalen die aan staan, voor het dashboard."""
-    return [
-        name
-        for name, enabled in (
-            ("pushover", config.pushover.enabled),
-            ("matrix", config.matrix.enabled),
-        )
-        if enabled
-    ]
+    return [name for name, enabled in (("pushover", config.pushover.enabled),) if enabled]
 
 
 def create_app(context: WebContext) -> FastAPI:
@@ -175,7 +167,6 @@ def create_app(context: WebContext) -> FastAPI:
         data["failed_notifications_24h"] = await context.db.recent_failures(24)
         data["watchdog_threshold_seconds"] = config.sia.offline_after_seconds
         data["selftest"] = await context.selftest.status() if context.selftest is not None else None
-        data["matrix_enabled"] = config.matrix.enabled
         data["pushover_enabled"] = config.pushover.enabled
         data["channels"] = _channels(config)
         data["now"] = utcnow().isoformat()
@@ -434,11 +425,6 @@ def create_app(context: WebContext) -> FastAPI:
                 "ping_interval_seconds": config.sia.ping_interval_seconds,
             },
             "channels": _channels(config),
-            "ring_variants": (
-                [v.name for v in context.matrix.ring_sender.selected_variants()]
-                if context.matrix is not None
-                else []
-            ),
         }
 
     # ── Live feed ────────────────────────────────────────────────────────────

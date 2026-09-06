@@ -1,6 +1,6 @@
 """Nep-Ajax-hub: bouwt echte SIA DC-09 frames en stuurt ze naar de centrale.
 
-Hiermee test je de hele keten — ontvangst, normalisatie, dashboard, Matrix,
+Hiermee test je de hele keten — ontvangst, normalisatie, dashboard, melding,
 MQTT — zonder Ajax-hardware en zonder een echt alarm te veroorzaken. De frames
 zijn niet nagebootst maar volgens de norm opgebouwd, inclusief CRC-16/ARC en
 AES-128-CBC, zodat pysiaalarm ze precies zo behandelt als die van een echte hub.

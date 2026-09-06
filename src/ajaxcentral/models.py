@@ -80,7 +80,7 @@ class AlarmEvent:
     raw: str | None = None
     event_at: datetime = field(default_factory=utcnow)
     received_at: datetime = field(default_factory=utcnow)
-    #: Stabiele sleutel voor idempotentie richting Matrix en voor deduplicatie.
+    #: Stabiele sleutel voor idempotentie richting het meldkanaal en voor deduplicatie.
     uid: str = field(default_factory=lambda: uuid.uuid4().hex)
     #: Wordt gezet zodra het event is weggeschreven.
     db_id: int | None = None
@@ -120,7 +120,7 @@ class AlarmEvent:
         return f"{self.code}|{self.device_id}|{self.partition_id}"
 
     def summary(self) -> str:
-        """Eén regel, zoals die in Matrix en op het dashboard verschijnt."""
+        """Eén regel, zoals die in de melding en op het dashboard verschijnt."""
         return build_summary(self.title, self.device_name, self.partition_name, self.user_name)
 
     def to_dict(self) -> dict[str, Any]:
@@ -258,7 +258,12 @@ class NotificationLog(Base):
 
 
 class CallAttempt(Base):
-    """Eén belpoging richting Element X."""
+    """Eén poging om je telefoon te laten afgaan.
+
+    De kolomnaam `variants` is een overblijfsel uit de tijd dat er meerdere
+    ring-payloads per poging de deur uitgingen; nu staat er de naam van het
+    kanaal in ("pushover"). Hernoemen zou een migratie kosten voor niets.
+    """
 
     __tablename__ = "call_attempts"
 

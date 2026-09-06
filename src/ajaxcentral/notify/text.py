@@ -1,7 +1,7 @@
 """Kanaalonafhankelijke tekst voor meldingen.
 
-Matrix en Pushover vertellen hetzelfde: wat, waar, en hoe laat. De feitenregels
-staan hier één keer, zodat twee kanalen niet ongemerkt uit elkaar groeien.
+Elk kanaal vertelt hetzelfde: wat, waar, en hoe laat. De feitenregels staan
+hier één keer, zodat een tweede kanaal niet ongemerkt iets anders gaat melden.
 """
 
 from __future__ import annotations

@@ -326,9 +326,9 @@ echo
 echo "  Namen van je melders, groepen en gebruikers staan in config.yaml."
 echo "  Na een wijziging daar: ${COMPOSE} restart"
 echo
-echo "  ${YELLOW}Bellen via Matrix staat nog UIT.${RESET} Zet dat aan met matrix.enabled: true"
-echo "  in config.yaml en volg 'Het bellen instellen' in README.md — dat begint"
-echo "  met tools/ringtest.py, en dat is bewust de eerste stap."
+echo "  ${YELLOW}Meldingen staan nog UIT.${RESET} Zet Pushover aan: zet je sleutels in .env"
+echo "  en pushover.enabled: true in config.yaml. Volg 'Meldingen instellen' in"
+echo "  README.md — zonder meldkanaal gaat je telefoon niet bij een alarm."
 echo
 echo "  Logs bekijken : ${COMPOSE} logs -f"
 echo "  Stoppen       : ${COMPOSE} down"

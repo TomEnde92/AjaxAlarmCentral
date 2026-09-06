@@ -201,7 +201,7 @@ class SelfTest:
         status = await self.status()
         if status.get("warning"):
             _LOGGER.error(
-                "Belpad verdacht: %s. Controleer je meldkanaal (Matrix-instellingen en "
+                "Belpad verdacht: %s. Controleer je meldkanaal (Pushover-instellingen en "
                 "push-regel, of de Pushover-app) voordat je hierop vertrouwt.",
                 status.get("state"),
             )
