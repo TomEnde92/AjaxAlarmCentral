@@ -277,32 +277,47 @@ class Config(BaseModel):
         if not device_id:
             return "systeem"
         return (
-            self.devices.get(device_id)
-            or self.devices.get(device_id.lstrip("0"))
-            or (f"apparaat {device_id}")
+            _match(self.devices, device_id) or f"apparaat {device_id}"
         )
 
     def device_type(self, device_id: str | None) -> str | None:
         """Soort melder (fire, burglary, other), of None als het niet is ingesteld."""
         if not device_id:
             return None
-        return self.device_types.get(device_id) or self.device_types.get(device_id.lstrip("0"))
+        return _match(self.device_types, device_id)
 
     def user_name(self, user_id: str | None) -> str:
         if not user_id:
             return "onbekende gebruiker"
-        return (
-            self.users.get(user_id) or self.users.get(user_id.lstrip("0")) or f"gebruiker {user_id}"
-        )
+        return _match(self.users, user_id) or f"gebruiker {user_id}"
 
     def partition_name(self, partition_id: str | None) -> str:
         if not partition_id:
             return "systeem"
-        return (
-            self.partitions.get(partition_id)
-            or self.partitions.get(partition_id.lstrip("0"))
-            or f"groep {partition_id}"
-        )
+        return _match(self.partitions, partition_id) or f"groep {partition_id}"
+
+
+def _match(table: dict[str, str], key: str) -> str | None:
+    """Zoek een nummer op in een namentabel, ongeacht voorloopnullen.
+
+    De hub is hier niet consequent in. Bij een inbraakalarm stuurt hij melder 2
+    als "2", terwijl diezelfde melder in de configuratie "02" heet omdat hij zo
+    in andere meldingen langskomt. Wie de tabel letterlijk neemt, leest
+    "apparaat 2" op het moment dat er "keuken" hoort te staan — en dan moet je
+    tijdens een inbraak gaan zoeken welke melder dat ook alweer was.
+
+    Daarom vergelijken we op het getal en niet op de tekst. De tabellen zijn
+    klein (een handvol melders), dus dat mag gewoon lineair.
+    """
+    if key in table:
+        return table[key]
+    number = key.lstrip("0") or key
+    if number in table:
+        return table[number]
+    for candidate, value in table.items():
+        if (candidate.lstrip("0") or candidate) == number:
+            return value
+    return None
 
 
 def _apply_secrets(raw: dict[str, Any]) -> dict[str, Any]:

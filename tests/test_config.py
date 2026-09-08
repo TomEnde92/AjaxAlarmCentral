@@ -27,3 +27,21 @@ def test_device_types_uit_yaml_met_getalsleutels(tmp_path: Path) -> None:
     loaded = load_config(path)
     assert loaded.device_type("07") == "fire"
     assert loaded.device_name("07") == "Computerkamer"
+
+
+def test_namen_trekken_zich_niets_aan_van_voorloopnullen(config: Config) -> None:
+    """De hub stuurt melder 1 bij een alarm als "1", de configuratie noemt hem "01".
+
+    Zonder deze soepelheid leest het logboek "apparaat 1" op het moment dat er
+    "Voordeur" hoort te staan — en dan moet je tijdens een inbraak gaan zoeken
+    welke melder dat ook alweer was.
+    """
+    assert config.device_name("1") == "Voordeur"
+    assert config.device_name("01") == "Voordeur"
+    assert config.device_type("1") == "burglary"
+    assert config.user_name("1") == "Tom"
+    # En andersom: de tabel zonder nul, het bericht met.
+    assert config.partition_name("01") == "Begane grond"
+    # Een nummer dat echt niet bestaat blijft een nummer.
+    assert config.device_name("77") == "apparaat 77"
+    assert config.user_name("77") == "gebruiker 77"
