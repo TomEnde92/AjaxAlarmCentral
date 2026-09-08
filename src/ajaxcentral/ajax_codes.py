@@ -294,6 +294,24 @@ DISARM_CODES = frozenset({"OP", "OG", "OA", "OQ", "OR", "OB", "OS"})
 #: codes hangt daarom af van de klok (zie config.arming en normalize()).
 NIGHT_ARM_CODES = frozenset({"NL", "NF"})
 
+#: In- en uitschakelcodes die maar één groep betreffen. SIA zegt dit zelf al:
+#: deze codes gaan over een "Area" ("System has been partially armed", "An area
+#: has been perimeter armed"), terwijl CL en OP over de hele installatie gaan
+#: ("System armed, normal", "Account was disarmed") en het meegestuurde nummer
+#: daar de gebruiker is.
+#:
+#: Dat onderscheid is het verschil tussen "de begane grond staat aan" en "het
+#: huis staat aan". De hub stuurt bij een volledige inschakeling één CL, met
+#: het groepsveld op 1 — wie dat als groepsbericht leest, laat de rest van het
+#: huis op het dashboard als uitgeschakeld staan terwijl het bewaakt wordt.
+AREA_ARM_CODES = frozenset({"CG", "CA", "CB", "NL", "NF", "OG", "OA", "OB"})
+
+#: En het spiegelbeeld: de codes die over de hele installatie gaan. Het
+#: groepsveld dat de hub daarbij meestuurt (bij Ajax altijd 1) hoort dan
+#: nergens in beeld te komen — "Ingeschakeld · Begane grond" terwijl het hele
+#: huis aan staat, is precies de verwarring die we willen vermijden.
+SYSTEM_ARM_CODES = (ARM_CODES | DISARM_CODES) - AREA_ARM_CODES
+
 
 #: Interne codes die wij zelf genereren; de hub stuurt ze nooit. Ze doorlopen
 #: dezelfde meld- en belketen als echte hub-events.

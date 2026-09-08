@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from .ajax_codes import ARM_CODES, DISARM_CODES
+from .ajax_codes import AREA_ARM_CODES, ARM_CODES, DISARM_CODES
 from .config import Config
 from .models import AlarmEvent, as_utc, iso, utcnow
 
@@ -131,12 +131,22 @@ class SystemState:
 
     def _apply_arming(self, alarm: AlarmEvent, *, armed: bool) -> None:
         partition_id = alarm.partition_id or "1"
-        partition = self.partitions.get(partition_id)
-        if partition is None:
-            partition = PartitionState(partition_id, self._config.partition_name(partition_id))
-            self.partitions[partition_id] = partition
-        partition.armed = armed
-        partition.changed_at = alarm.received_at
+        if alarm.code in AREA_ARM_CODES:
+            targets = [partition_id]
+        else:
+            # De hele installatie: alle groepen die we kennen, plus de groep
+            # uit het bericht als die nog niet in de configuratie staat.
+            targets = list(self.partitions)
+            if partition_id not in self.partitions:
+                targets.append(partition_id)
+
+        for target in targets:
+            partition = self.partitions.get(target)
+            if partition is None:
+                partition = PartitionState(target, self._config.partition_name(target))
+                self.partitions[target] = partition
+            partition.armed = armed
+            partition.changed_at = alarm.received_at
 
     @staticmethod
     def _trouble_key(alarm: AlarmEvent) -> str:
@@ -154,6 +164,20 @@ class SystemState:
         """Heeft de hub te lang gezwegen?
 
         Voordat er ooit contact is geweest rekenen we vanaf de starttijd, zodat
+        """Zet de betrokken groepen aan of uit.
+
+        Welke groepen dat zijn, staat in de code en niet in het groepsveld. Een
+        CL ("System armed, normal") of OP ("Account was disarmed") gaat over de
+        hele installatie: het nummer erin is de gebruiker, en het groepsveld
+        zet de hub daarbij gewoon op 1. Alleen de gebiedscodes uit
+        AREA_ARM_CODES — de deel- en nachtinschakeling voorop — betreffen één
+        groep.
+
+        Zonder dat onderscheid blijft de verdieping op het dashboard
+        "Uitgeschakeld" heten terwijl het hele huis is ingeschakeld, en dat is
+        precies het soort halve waarheid waar je 's nachts niet op wilt
+        vertrouwen.
+        """
         een centrale die naast een uitgeschakelde hub opstart óók alarm slaat in
         plaats van eeuwig te wachten op een eerste bericht.
         """

@@ -37,6 +37,37 @@ def test_nachtstand_telt_als_ingeschakeld(config: Config) -> None:
     assert state.partitions["1"].armed
 
 
+def test_volledig_inschakelen_zet_alle_groepen_aan(config: Config) -> None:
+    """CL is "het huis staat aan", niet "groep 1 staat aan".
+
+    De hub stuurt bij een volledige inschakeling één CL met het groepsveld op
+    1. Wie dat als groepsbericht leest, laat de verdieping op het dashboard
+    als uitgeschakeld staan terwijl die wél bewaakt wordt.
+    """
+    state = SystemState(config)
+    state.apply(_event("CL", "info", "arming", partition_id="1"))
+    assert all(partition.armed for partition in state.partitions.values())
+
+    state.apply(_event("OP", "info", "arming", partition_id="1"))
+    assert not any(partition.armed for partition in state.partitions.values())
+
+
+def test_deelinschakeling_raakt_alleen_de_eigen_groep(config: Config) -> None:
+    """Bij een deel- of nachtinschakeling is het groepsveld wél de groep."""
+    state = SystemState(config)
+    state.apply(_event("NL", "info", "arming", partition_id="1"))
+    assert state.partitions["1"].armed
+    assert not state.partitions["2"].armed
+
+
+def test_onbekende_groep_komt_erbij(config: Config) -> None:
+    """Een groep die niet in de configuratie staat mag niet verdwijnen."""
+    state = SystemState(config)
+    state.apply(_event("CG", "info", "arming", partition_id="7"))
+    assert state.partitions["7"].armed
+    assert not state.partitions["1"].armed
+
+
 def test_storing_blijft_staan_tot_herstel(config: Config) -> None:
     state = SystemState(config)
     state.apply(_event("XT", "trouble", "battery", device_id="03"))

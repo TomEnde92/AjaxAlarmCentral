@@ -47,6 +47,21 @@ def test_inschakelen_noemt_de_persoon_niet_het_apparaat(config: Config) -> None:
     assert alarm.summary() == "Ingeschakeld door Tom"
 
 
+def test_volledige_inschakeling_krijgt_geen_groep(config: Config) -> None:
+    """CL gaat over de hele installatie, dus hoort er geen groep bij te staan.
+
+    Ajax vult het groepsveld bij een CL gewoon met 1. Dat als groep tonen
+    levert "Ingeschakeld door Tom · Begane grond" op terwijl de verdieping net
+    zo goed bewaakt wordt.
+    """
+    alarm = normalize(_sia("CL", "01", "1"), config)
+    assert alarm.partition_id is None
+    assert alarm.partition_name == "systeem"
+
+    uit = normalize(_sia("OP", "01", "1"), config)
+    assert uit.partition_id is None
+
+
 def test_nachtstand_noemt_de_persoon_niet_de_groep(config: Config) -> None:
     """Ajax stuurt bij NL de gebruiker mee, al zegt de SIA-tabel 'Area number'."""
     alarm = normalize(_sia("NL", "01", "1"), config)

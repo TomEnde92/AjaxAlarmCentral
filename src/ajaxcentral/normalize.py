@@ -14,7 +14,14 @@ from datetime import UTC, datetime
 from pysiaalarm import SIAEvent
 from pysiaalarm.utils import MessageTypes
 
-from .ajax_codes import NIGHT_ARM_CODES, SUBJECT_AREA, SUBJECT_NONE, SUBJECT_USER, describe
+from .ajax_codes import (
+    NIGHT_ARM_CODES,
+    SUBJECT_AREA,
+    SUBJECT_NONE,
+    SUBJECT_USER,
+    SYSTEM_ARM_CODES,
+    describe,
+)
 from .config import Config
 from .models import AlarmEvent, utcnow
 
@@ -109,6 +116,13 @@ def normalize(event: SIAEvent, config: Config) -> AlarmEvent:
         partition_id = partition_id or number
     elif info.subject != SUBJECT_NONE:
         device_id = number
+
+    if code in SYSTEM_ARM_CODES:
+        # Een CL of OP gaat over de hele installatie; de 1 die Ajax in het
+        # groepsveld zet is een vulling, geen groep. Wie hem toch toont, meldt
+        # "Ingeschakeld door Tom · Begane grond" terwijl boven net zo goed aan
+        # staat. Het ruwe bericht blijft onder Diagnostiek staan.
+        partition_id = None
 
     if not info.known and code:
         _LOGGER.info(
