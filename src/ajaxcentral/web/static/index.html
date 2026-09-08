@@ -4,15 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0b0e14">
 <title>Ajax Alarmcentrale</title>
 <link rel="stylesheet" href="/static/style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234c9ffe' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/><path d='m9 12 2 2 4-4'/></svg>">
 </head>
 <body>
 
 <div id="login" class="login hidden">
   <form class="login-card" id="login-form">
-    <h1>Alarmcentrale</h1>
+    <div class="login-mark">
+      <svg class="brand" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+      <div>
+        <h1>Alarmcentrale</h1>
+        <div class="sysline">SIA DC-09 &middot; AES-128</div>
+      </div>
+    </div>
     <p class="muted" id="login-hint">Log in om verder te gaan.</p>
     <label>Gebruikersnaam<input name="username" autocomplete="username" required autofocus></label>
     <label>Wachtwoord<input name="password" type="password" autocomplete="current-password" required></label>
@@ -22,13 +29,18 @@
 </div>
 
 <div id="app" class="hidden">
-  <header>
-    <h1>
+  <header class="topbar">
+    <div class="ident">
       <svg class="brand" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
-      <span>Alarmcentrale</span>
-    </h1>
+      <div>
+        <h1>Alarmcentrale</h1>
+        <div class="sysline" id="sysline">SIA DC-09</div>
+      </div>
+    </div>
     <div class="header-right">
+      <span class="clock" id="clock" aria-label="Huidige tijd">--:--:--</span>
       <span id="connection" class="pill pill-muted">verbinden…</span>
+      <button class="icon-btn" id="theme" title="Licht of donker" aria-label="Licht of donker"></button>
       <button class="link" id="logout">Uitloggen</button>
     </div>
   </header>
@@ -76,15 +88,26 @@
           <option value="unknown">Onbekend</option>
         </select>
         <select id="filter-category" aria-label="Categorie"><option value="">Alle categorieën</option></select>
-        <label class="field">van <input type="date" id="filter-since"></label>
-        <label class="field">tot en met <input type="date" id="filter-until"></label>
         <label class="check"><input type="checkbox" id="filter-heartbeat"> Hartslagen tonen</label>
       </div>
       <div class="filters">
         <button id="refresh" class="secondary">Vernieuwen</button>
-        <button id="export" class="secondary" title="Het logboek met de huidige filters als CSV, te openen in Excel">Exporteer CSV</button>
+        <button id="export" class="secondary" aria-expanded="false" title="Het logboek opslaan als CSV of als rapport">Exporteren</button>
         <span class="muted small" id="log-count"></span>
       </div>
+    </div>
+
+    <!-- De periode hoort bij het exporteren, niet bij het kijken: op het scherm
+         scroll je gewoon terug. -->
+    <div class="export-panel" id="export-panel" hidden>
+      <div class="filters">
+        <label class="field">van <input type="date" id="export-since"></label>
+        <label class="field">tot en met <input type="date" id="export-until"></label>
+        <button id="export-csv" class="secondary">CSV</button>
+        <button id="export-pdf" class="secondary">PDF-rapport</button>
+        <button id="export-close" class="link">Sluiten</button>
+      </div>
+      <p class="muted small" id="export-hint"></p>
     </div>
     <div id="events"></div>
     <button id="load-more" class="link">Meer laden</button>

@@ -20,14 +20,18 @@ from pydantic import BaseModel
 from starlette.websockets import WebSocketDisconnect
 
 from ..bus import EventBus
-from ..config import Config
+from ..config import HUB_CLOCK_LIMIT_SECONDS, Config
 from ..db import Database
-from ..models import AlarmEvent, utcnow
+from ..models import AlarmEvent, build_summary, utcnow
 from ..normalize import TEST_ALARM_KINDS, simulated_alarm
 from ..selftest import SelfTest
 from ..state import SystemState
 
 _LOGGER = logging.getLogger(__name__)
+
+#: Zoveel regels passen er in een rapport dat nog te overhandigen is; daarboven
+#: is een CSV zinniger dan honderden bladzijden papier.
+_PDF_MAX_ROWS = 2000
 
 STATIC_DIR = Path(__file__).parent / "static"
 SESSION_COOKIE = "ajaxcentral_session"
@@ -169,6 +173,17 @@ def create_app(context: WebContext) -> FastAPI:
         data["selftest"] = await context.selftest.status() if context.selftest is not None else None
         data["pushover_enabled"] = config.pushover.enabled
         data["channels"] = _channels(config)
+        # Vaste gegevens van de installatie. Ze staan in de kop van het
+        # dashboard omdat je bij een storing als eerste wilt zien welk object
+        # je voor je hebt en of het verkeer versleuteld is.
+        data["installation"] = {
+            "account": config.sia.account_id,
+            "protocol": config.sia.protocol.upper(),
+            "port": config.sia.port,
+            "encrypted": bool(config.sia.key),
+            "clock_warn_seconds": config.sia.clock_warn_seconds,
+            "clock_limit_seconds": HUB_CLOCK_LIMIT_SECONDS,
+        }
         data["now"] = utcnow().isoformat()
         return data
 
@@ -312,6 +327,165 @@ def create_app(context: WebContext) -> FastAPI:
             "\ufeff" + buffer.getvalue(),
             media_type="text/csv; charset=utf-8",
             headers={"Content-Disposition": f'attachment; filename="logboek-{stamp}.csv"'},
+        )
+
+    @app.get("/api/events.pdf")
+    async def events_pdf(
+        user: str = Depends(current_user),
+        severity: str | None = None,
+        category: str | None = None,
+        device_id: str | None = None,
+        partition_id: str | None = None,
+        include_heartbeat: bool = False,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> Response:
+        """Hetzelfde logboek als een rapport om af te geven of te printen.
+
+        CSV is om mee te rekenen, dit is om te overhandigen: een kop met het
+        objectnummer en de periode, en op elke bladzijde een paginanummer. Voor
+        een aangifte of een verzekeraar telt dat het er als een document
+        uitziet en niet als een schermafdruk.
+
+        De importregel staat bewust in de functie: gaat er iets mis met de
+        bibliotheek, dan verliest de centrale een rapportknop en niet haar
+        alarmfunctie.
+        """
+        try:
+            from fpdf import FPDF
+        except ImportError:  # pragma: no cover - alleen als de installatie kaal is
+            raise HTTPException(
+                status_code=503,
+                detail="De PDF-bibliotheek ontbreekt in deze installatie; gebruik de CSV-export.",
+            ) from None
+
+        rows = await _filtered_events(
+            limit=_PDF_MAX_ROWS + 1,
+            offset=0,
+            severity=severity,
+            category=category,
+            device_id=device_id,
+            partition_id=partition_id,
+            include_heartbeat=include_heartbeat,
+            since=since,
+            until=until,
+        )
+        truncated = len(rows) > _PDF_MAX_ROWS
+        rows = rows[:_PDF_MAX_ROWS]
+
+        def local(moment: datetime | None) -> str:
+            return config.to_local(moment).strftime("%d-%m-%Y %H:%M:%S") if moment else ""
+
+        def day(value: str | None) -> str | None:
+            moment = _moment(value, "periode")
+            return config.to_local(moment).strftime("%d-%m-%Y") if moment else None
+
+        # De ingebouwde letters van fpdf kennen alleen latin-1. Een naam met een
+        # teken daarbuiten mag het rapport niet laten mislukken.
+        def safe(text: str) -> str:
+            return text.encode("latin-1", "replace").decode("latin-1")
+
+        period = "alle gebeurtenissen in het logboek"
+        start, end = day(since), day(until)
+        if start and end:
+            period = f"{start} t/m {end}"
+        elif start:
+            period = f"vanaf {start}"
+        elif end:
+            period = f"tot en met {end}"
+
+        selection = [f"periode: {period}"]
+        if severity:
+            selection.append(f"ernst: {severity}")
+        if category:
+            selection.append(f"categorie: {category}")
+        selection.append("inclusief hartslagen" if include_heartbeat else "zonder hartslagen")
+
+        pdf = FPDF(orientation="P", unit="mm", format="A4")
+        pdf.set_auto_page_break(auto=True, margin=18)
+        pdf.set_title(f"Logboek alarmcentrale {config.sia.account_id}")
+
+        columns = (("Tijdstip", 34), ("Ernst", 18), ("Code", 13), ("Gebeurtenis", 117))
+
+        def table_head() -> None:
+            pdf.set_font("Helvetica", "B", 8)
+            pdf.set_fill_color(232, 236, 241)
+            for name, width in columns:
+                pdf.cell(width, 6, safe(name), border="B", fill=True)
+            pdf.ln()
+
+        pdf.add_page()
+        pdf.set_font("Helvetica", "B", 15)
+        pdf.cell(0, 8, safe("Logboek alarmcentrale"), new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_text_color(90, 100, 115)
+        pdf.cell(
+            0,
+            5,
+            safe(f"object {config.sia.account_id} · SIA DC-09 · {' · '.join(selection)}"),
+            new_x="LMARGIN",
+            new_y="NEXT",
+        )
+        pdf.cell(
+            0,
+            5,
+            safe(
+                f"opgemaakt op {local(utcnow())} · tijden in {config.timezone} · "
+                f"{len(rows)} gebeurtenis(sen)"
+            ),
+            new_x="LMARGIN",
+            new_y="NEXT",
+        )
+        pdf.set_text_color(0, 0, 0)
+        pdf.ln(3)
+        table_head()
+
+        pdf.set_font("Helvetica", "", 8)
+        for row in rows:
+            # Een nieuwe bladzijde krijgt zijn eigen kolomkoppen, anders staat
+            # de helft van het rapport zonder uitleg op papier.
+            if pdf.will_page_break(5):
+                pdf.add_page()
+                table_head()
+                pdf.set_font("Helvetica", "", 8)
+            if row.severity == "alarm":
+                pdf.set_text_color(180, 30, 35)
+                pdf.set_font("Helvetica", "B", 8)
+            what = build_summary(row.title, row.device_name, row.partition_name, row.user_name)
+            extra = []
+            if row.partition_name not in ("systeem", "") and row.partition_name not in what:
+                extra.append(row.partition_name)
+            if row.acknowledged_at:
+                extra.append(f"bevestigd door {row.acknowledged_by}")
+            if extra:
+                what = f"{what} ({', '.join(extra)})"
+            for value, (_, width) in zip(
+                (local(row.event_at), row.severity, row.code, what), columns, strict=True
+            ):
+                pdf.cell(width, 5, safe(str(value))[: int(width * 0.62)], border="B")
+            pdf.ln()
+            if row.severity == "alarm":
+                pdf.set_text_color(0, 0, 0)
+                pdf.set_font("Helvetica", "", 8)
+
+        if truncated:
+            pdf.ln(2)
+            pdf.set_font("Helvetica", "I", 8)
+            pdf.multi_cell(
+                0,
+                5,
+                safe(
+                    f"Er zijn meer dan {_PDF_MAX_ROWS} gebeurtenissen in deze selectie. "
+                    "Kies een kortere periode voor een volledig rapport, of gebruik de "
+                    "CSV-export."
+                ),
+            )
+
+        stamp = config.to_local(utcnow()).strftime("%Y%m%d-%H%M")
+        return Response(
+            bytes(pdf.output()),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="logboek-{stamp}.pdf"'},
         )
 
     @app.get("/api/alarms")

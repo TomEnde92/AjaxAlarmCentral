@@ -1,34 +1,46 @@
 /* Dashboard van de alarmcentrale.
-   Donker als basis: dit scherm hangt vaak in een gang of staat 's nachts open,
-   en dan is een witte pagina onaangenaam fel. */
+   Donker is de vaste basis, niet iets wat van de telefoon-instelling afhangt:
+   dit scherm hangt vaak in een gang of staat 's nachts open, en het hoort er
+   op elk toestel hetzelfde uit te zien. Wie liever licht werkt, zet het om met
+   de knop in de kop; die keuze blijft in de browser staan. */
 
 :root {
-  --bg: #12151a;
-  --panel: #1a1f27;
-  --panel-2: #212833;
-  --line: #2c3542;
-  --text: #e6eaf0;
-  --muted: #97a3b4;
-  --alarm: #e74c3c;
-  --trouble: #e6912c;
-  --restore: #27ae60;
-  --info: #3498db;
+  --bg: #0b0e14;
+  --panel: #131822;
+  --panel-2: #1a2130;
+  --line: #232c3c;
+  --line-soft: #1a2130;
+  --text: #e8edf5;
+  --muted: #8a97ab;
+  --alarm: #ff4d4f;
+  --trouble: #f0a132;
+  --restore: #2ecc71;
+  --info: #4c9ffe;
   --heartbeat: #5d6d7e;
-  --unknown: #9b59b6;
-  --accent: #4a9eff;
-  --radius: 10px;
+  --unknown: #a06cd5;
+  --accent: #4c9ffe;
+  --radius: 6px;
+  --radius-sm: 4px;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Roboto Mono", monospace;
+  color-scheme: dark;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f2f4f7;
-    --panel: #ffffff;
-    --panel-2: #f7f9fb;
-    --line: #dde3ea;
-    --text: #1a1f27;
-    --muted: #5b6775;
-    --heartbeat: #8b98a6;
-  }
+/* Licht is een bewuste keuze, geen automatisme. */
+:root[data-theme="light"] {
+  --bg: #eef1f5;
+  --panel: #ffffff;
+  --panel-2: #f5f7fa;
+  --line: #d6dde6;
+  --line-soft: #e5eaf0;
+  --text: #131822;
+  --muted: #5b6775;
+  --heartbeat: #8b98a6;
+  --alarm: #d93438;
+  --trouble: #b9761a;
+  --restore: #1c8f4d;
+  --accent: #1f6feb;
+  --info: #1f6feb;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -39,6 +51,8 @@ body {
   background: var(--bg);
   color: var(--text);
   font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Tijden en tellers verspringen niet meer bij elke seconde. */
+  font-variant-numeric: tabular-nums;
   max-width: 1100px;
   margin-inline: auto;
 }
@@ -49,23 +63,59 @@ body {
 
 /* ── Kop ──────────────────────────────────────────────────────────────── */
 
-header {
+/* De kop blijft staan bij het scrollen: op een telefoon is dat het enige
+   plekje dat altijd vertelt of de verbinding met de centrale nog leeft. */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 1.1rem 0 .8rem;
+  gap: .75rem;
+  padding: .8rem 0 .7rem;
+  margin-bottom: 1rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
   flex-wrap: wrap;
 }
-header h1 {
-  display: flex;
-  align-items: center;
-  gap: .5rem;
-  font-size: 1.25rem;
+.ident { display: flex; align-items: center; gap: .6rem; min-width: 0; }
+.topbar h1 {
+  font-size: 1.05rem;
   margin: 0;
-  letter-spacing: .01em;
+  font-weight: 650;
+  letter-spacing: .12em;
+  text-transform: uppercase;
 }
-.brand { width: 1.5rem; height: 1.5rem; color: var(--accent); }
+/* Objectnummer, protocol en poort: waar je bij een storing als eerste naar
+   kijkt, dus niet weggestopt onder Diagnostiek. */
+.sysline {
+  font-family: var(--mono);
+  font-size: .72rem;
+  color: var(--muted);
+  letter-spacing: .04em;
+  margin-top: .1rem;
+}
+.clock {
+  font-family: var(--mono);
+  font-size: .82rem;
+  color: var(--muted);
+  letter-spacing: .05em;
+}
+/* Onversleuteld SIA-verkeer is geen detail: dan mag het opvallen. */
+.sysline.warn { color: var(--alarm); }
+.brand { width: 1.75rem; height: 1.75rem; color: var(--accent); }
+.icon-btn {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  border-radius: var(--radius-sm);
+  padding: .3rem .45rem;
+  line-height: 1;
+  display: inline-flex;
+}
+.icon-btn svg { width: 1rem; height: 1rem; }
+.icon-btn:hover { color: var(--text); border-color: var(--accent); filter: none; }
 
 /* ── Iconen ───────────────────────────────────────────────────────────────
    Lijniconen in plaats van emoji: die zien er op elk toestel hetzelfde uit
@@ -103,11 +153,18 @@ svg.ico, .brand, .status-icon svg {
   margin-bottom: 1rem;
   border-radius: var(--radius);
   border: 1px solid var(--line);
+  border-left-width: 4px;
   background: var(--panel);
 }
 .status-icon { display: flex; }
 .status-icon svg { width: 2.4rem; height: 2.4rem; }
-.status-title { font-size: 1.35rem; font-weight: 700; line-height: 1.2; }
+.status-title {
+  font-size: 1.3rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
 .status-detail { color: var(--muted); font-size: .9rem; margin-top: .2rem; }
 .status-bar.ok { border-color: var(--restore); }
 .status-bar.ok .status-icon { color: var(--restore); }
@@ -153,10 +210,11 @@ svg.ico, .brand, .status-icon svg {
   padding: .85rem 1rem;
 }
 .tile .label {
-  font-size: .78rem;
+  font-size: .72rem;
   text-transform: uppercase;
-  letter-spacing: .06em;
+  letter-spacing: .1em;
   color: var(--muted);
+  font-weight: 600;
 }
 .tile .value {
   font-size: 1.35rem;
@@ -165,17 +223,24 @@ svg.ico, .brand, .status-icon svg {
   /* Lange woorden als "Uitgeschakeld" mogen de tegel niet uitrekken. */
   overflow-wrap: anywhere;
 }
-.tile .sub { font-size: .82rem; color: var(--muted); margin-top: .15rem; }
+.tile .sub {
+  font-size: .78rem;
+  color: var(--muted);
+  margin-top: .2rem;
+  font-family: var(--mono);
+  letter-spacing: -.01em;
+}
 .tile.ok    { border-left: 4px solid var(--restore); }
 .tile.warn  { border-left: 4px solid var(--trouble); }
 .tile.bad   { border-left: 4px solid var(--alarm); }
 .tile.plain { border-left: 4px solid var(--line); }
 .tile.armed {
   border-left: 4px solid var(--accent);
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
 }
 .tile.armed .value { color: var(--accent); }
+.tile.armed .label { color: color-mix(in srgb, var(--accent) 70%, var(--muted)); }
 
 /* ── Panelen ──────────────────────────────────────────────────────────── */
 
@@ -208,19 +273,25 @@ svg.ico, .brand, .status-icon svg {
   background: var(--panel);
   border: 1px solid var(--line);
   color: var(--muted);
-  padding: .45rem .9rem;
-  border-radius: var(--radius);
+  padding: .42rem .9rem;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font: inherit;
+  font-size: .88rem;
+  letter-spacing: .04em;
 }
-.tab.active { color: var(--text); border-color: var(--accent); }
+.tab.active {
+  color: var(--text);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+}
 
 /* ── Knoppen en velden ────────────────────────────────────────────────── */
 
 button {
   font: inherit;
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--accent);
   background: var(--accent);
   color: #fff;
@@ -242,7 +313,7 @@ select, input {
   background: var(--panel-2);
   color: var(--text);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: .42rem .6rem;
 }
 .toolbar {
@@ -253,6 +324,17 @@ select, input {
   margin-bottom: .8rem;
 }
 .filters { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+/* Het exportpaneel klapt onder de balk uit; het hoort bij de knop en niet bij
+   het logboek, dus het staat een streepje in van de rand. */
+.export-panel {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: .7rem .8rem;
+  margin: 0 0 .9rem;
+}
+.export-panel p { margin: .5rem 0 0; }
 .field { display: flex; align-items: center; gap: .35rem; color: var(--muted); font-size: .88rem; }
 .field input[type="date"] { color-scheme: inherit; }
 .row { display: flex; gap: .5rem; flex-wrap: wrap; margin: .8rem 0 .4rem; }
@@ -266,15 +348,33 @@ select, input {
   grid-template-columns: auto 1fr auto;
   gap: .1rem .75rem;
   align-items: baseline;
-  padding: .55rem .2rem;
-  border-bottom: 1px solid var(--line);
+  padding: .55rem .35rem;
+  border-bottom: 1px solid var(--line-soft);
 }
 .event:last-child { border-bottom: none; }
 .event .icon { display: flex; align-items: center; grid-row: span 2; }
 .event .icon svg { width: 1.2rem; height: 1.2rem; }
 .event .title { font-weight: 600; }
-.event .when { color: var(--muted); font-size: .82rem; white-space: nowrap; grid-row: span 2; }
-.event .meta { color: var(--muted); font-size: .84rem; grid-column: 2; }
+.event .when {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: .78rem;
+  white-space: nowrap;
+  grid-row: span 2;
+}
+.event .meta { color: var(--muted); font-size: .82rem; grid-column: 2; }
+/* De SIA-code is een code en hoort er ook uit te zien: dat scheelt zoeken
+   als je hem naast de tabel in de documentatie legt. */
+.event .code {
+  font-family: var(--mono);
+  font-size: .74rem;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0 .3rem;
+}
+.event:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); }
 .event.sev-alarm .title { color: var(--alarm); }
 .event.sev-trouble .title { color: var(--trouble); }
 .event.sev-restore .title { color: var(--restore); }
@@ -352,7 +452,13 @@ table.kv td:first-child { color: var(--muted); width: 40%; }
   flex-direction: column;
   gap: .7rem;
 }
-.login-card h1 { margin: 0; font-size: 1.2rem; }
+.login-mark { display: flex; align-items: center; gap: .7rem; }
+.login-card h1 {
+  margin: 0;
+  font-size: 1.05rem;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
 .login-card label { display: flex; flex-direction: column; gap: .25rem; font-size: .86rem; color: var(--muted); }
 .error { color: var(--alarm); font-size: .86rem; margin: 0; }
 
@@ -364,6 +470,11 @@ footer { text-align: center; padding-top: 1rem; }
 
 @media (max-width: 560px) {
   body { padding-inline: .6rem; }
+  /* De telefoon toont zelf al een klok; de systeemregel is hier nuttiger. */
+  .clock { display: none; }
+  .topbar { padding: .6rem 0 .55rem; gap: .5rem; }
+  .topbar h1 { font-size: .95rem; }
+  .brand { width: 1.5rem; height: 1.5rem; }
   .tiles { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
   /* Op twee kolommen is er ongeveer 140px tekstruimte. "Uitgeschakeld" past
      daar net niet in op 1.15rem en brak dan midden in het woord af. */

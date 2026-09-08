@@ -17,6 +17,8 @@ const ICON_PATHS = {
   unknown: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
   shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>',
   shieldOff: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 9 6 6"/><path d="m15 9-6 6"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/>',
+  moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
 };
 
 function icon(name, cls) {
@@ -51,6 +53,42 @@ const el = (tag, cls, text) => {
   if (text !== undefined) node.textContent = text;
   return node;
 };
+
+/* ── Licht of donker ───────────────────────────────────────────────────────
+   Donker is de basis. De telefoon-instelling bepaalt dit bewust niet: dit
+   scherm hoort er overal hetzelfde uit te zien. De keuze blijft in de browser
+   staan, per toestel. */
+
+const THEME_KEY = "ajaxcentral-theme";
+
+function applyTheme(theme) {
+  const light = theme === "light";
+  if (light) document.documentElement.setAttribute("data-theme", "light");
+  else document.documentElement.removeAttribute("data-theme");
+  const button = $("#theme");
+  if (button) {
+    button.textContent = "";
+    button.append(icon(light ? "moon" : "sun"));
+    button.title = light ? "Donker weergeven" : "Licht weergeven";
+  }
+}
+
+function toggleTheme() {
+  const light = document.documentElement.getAttribute("data-theme") === "light";
+  const next = light ? "dark" : "light";
+  try { localStorage.setItem(THEME_KEY, next); } catch { /* privémodus: dan maar per sessie */ }
+  applyTheme(next);
+}
+
+function startClock() {
+  const node = $("#clock");
+  if (!node) return;
+  const tick = () => {
+    node.textContent = new Date().toLocaleTimeString("nl-NL", { hour12: false });
+  };
+  tick();
+  setInterval(tick, 1000);
+}
 
 /* ── Hulpfuncties ──────────────────────────────────────────────────────── */
 
@@ -136,6 +174,22 @@ $("#logout").addEventListener("click", async () => {
 });
 
 /* ── Statustegels ──────────────────────────────────────────────────────── */
+
+// Objectnummer, protocol en poort in de kop. Vaste gegevens, maar precies wat
+// je bij een storing als eerste wilt kunnen aflezen zonder te klikken.
+function renderSysline(status) {
+  const node = $("#sysline");
+  const info = status.installation;
+  if (!node || !info) return;
+  const bits = [
+    `object ${info.account}`,
+    "SIA DC-09",
+    `${info.protocol} ${info.port}`,
+    info.encrypted ? "AES-128" : "ONVERSLEUTELD",
+  ];
+  node.textContent = bits.join(" \u00b7 ");
+  node.classList.toggle("warn", !info.encrypted);
+}
 
 function renderTiles(status) {
   const tiles = $("#tiles");
@@ -346,7 +400,7 @@ function eventNode(event, isNew) {
   when.title = `${new Date(event.received_at).toLocaleString("nl-NL")} · ${formatRelative(event.received_at)}`;
   node.append(when);
 
-  const bits = [CATEGORY_LABELS[event.category] || event.category, `code ${event.code}`];
+  const bits = [];
   // De groep staat vaak al in de samenvatting; twee keer "Begane grond" op
   // dezelfde regel leest als een fout.
   if (event.partition_name && event.partition_name !== "systeem"
@@ -356,7 +410,14 @@ function eventNode(event, isNew) {
   if (event.source === "internal") bits.push("door de centrale zelf gemeld");
   if (event.source === "test") bits.push("testalarm vanuit het dashboard");
   if (event.acknowledged_at) bits.push(`bevestigd door ${event.acknowledged_by}`);
-  node.append(el("div", "meta", bits.join(" · ")));
+
+  // De categorie leest als tekst, de SIA-code als code: die laatste zoek je op
+  // in de tabel, dus die krijgt vaste breedte en een kadertje.
+  const meta = el("div", "meta");
+  meta.append(document.createTextNode(`${CATEGORY_LABELS[event.category] || event.category} · `));
+  meta.append(el("span", "code", event.code));
+  if (bits.length) meta.append(document.createTextNode(` · ${bits.join(" · ")}`));
+  node.append(meta);
   return node;
 }
 
@@ -384,36 +445,77 @@ async function loadEvents(append = false) {
 $("#refresh").addEventListener("click", () => loadEvents());
 $("#filter-heartbeat").addEventListener("change", (event) => {
   state.showHeartbeat = event.target.checked;
+  describeExport();
   loadEvents();
 });
 $("#load-more").addEventListener("click", () => loadEvents(true));
 ["severity", "category"].forEach((name) => {
   $(`#filter-${name}`).addEventListener("change", (event) => {
     state.filters[name] = event.target.value;
+    describeExport();
     loadEvents();
   });
 });
 
+/* ── Exporteren ────────────────────────────────────────────────────────────
+   De periode hoort bij het exporteren en niet bij het kijken: op het scherm
+   scroll je gewoon terug, maar een uitdraai voor de politie of de verzekeraar
+   gaat over een afgebakende periode. De filters die je bovenaan hebt staan
+   (ernst, categorie, hartslagen) gaan wel mee, want anders exporteer je iets
+   anders dan je ziet. */
+
 // Datumvelden zijn lokale dagen; de API wil tijdstippen. "Tot en met" 5 maart
 // is dus tot 6 maart 00:00 lokale tijd.
-$("#filter-since").addEventListener("change", (event) => {
-  state.filters.since = event.target.value ? new Date(`${event.target.value}T00:00`).toISOString() : "";
-  loadEvents();
-});
-$("#filter-until").addEventListener("change", (event) => {
-  if (!event.target.value) { state.filters.until = ""; return loadEvents(); }
-  const next = new Date(`${event.target.value}T00:00`);
-  next.setDate(next.getDate() + 1);
-  state.filters.until = next.toISOString();
-  return loadEvents();
-});
-
-$("#export").addEventListener("click", () => {
+function exportParams() {
   const params = new URLSearchParams({ include_heartbeat: String(state.showHeartbeat) });
   Object.entries(state.filters).forEach(([key, value]) => { if (value) params.set(key, value); });
-  // Gewone navigatie: de browser stuurt de sessiecookie mee en slaat het
-  // bestand op zoals hij dat met elke download doet.
-  window.location.assign(`/api/events.csv?${params}`);
+  const since = $("#export-since").value;
+  const until = $("#export-until").value;
+  if (since) params.set("since", new Date(`${since}T00:00`).toISOString());
+  if (until) {
+    const next = new Date(`${until}T00:00`);
+    next.setDate(next.getDate() + 1);
+    params.set("until", next.toISOString());
+  }
+  return params;
+}
+
+function describeExport() {
+  const since = $("#export-since").value;
+  const until = $("#export-until").value;
+  const bits = [];
+  if (since && until) bits.push(`${since} t/m ${until}`);
+  else if (since) bits.push(`vanaf ${since}`);
+  else if (until) bits.push(`tot en met ${until}`);
+  else bits.push("het hele logboek");
+  if (state.filters.severity) bits.push(`ernst ${state.filters.severity}`);
+  if (state.filters.category) bits.push(CATEGORY_LABELS[state.filters.category] || state.filters.category);
+  bits.push(state.showHeartbeat ? "inclusief hartslagen" : "zonder hartslagen");
+  $("#export-hint").textContent =
+    `Meegenomen: ${bits.join(" · ")}. CSV is om mee te rekenen in Excel, het PDF-rapport om af te geven of te printen.`;
+}
+
+function toggleExport(show) {
+  const panel = $("#export-panel");
+  const open = show === undefined ? panel.hidden : show;
+  panel.hidden = !open;
+  $("#export").setAttribute("aria-expanded", String(open));
+  if (open) describeExport();
+}
+
+$("#export").addEventListener("click", () => toggleExport());
+$("#export-close").addEventListener("click", () => toggleExport(false));
+["#export-since", "#export-until"].forEach((sel) => {
+  $(sel).addEventListener("change", describeExport);
+});
+
+// Gewone navigatie: de browser stuurt de sessiecookie mee en slaat het bestand
+// op zoals hij dat met elke download doet.
+$("#export-csv").addEventListener("click", () => {
+  window.location.assign(`/api/events.csv?${exportParams()}`);
+});
+$("#export-pdf").addEventListener("click", () => {
+  window.location.assign(`/api/events.pdf?${exportParams()}`);
 });
 
 function fillCategoryFilter() {
@@ -607,6 +709,18 @@ async function loadDiagnostics() {
     ["Afgekeurd op formaat", counters.error_format ?? 0],
     ["Afgekeurd op tijdstempel", counters.error_timestamp ?? 0],
   ];
+
+  // De klok van de hub hoort hier thuis, pal onder de teller die oploopt zodra
+  // hij te ver wegloopt: dan zie je het verband in één oogopslag.
+  const status = state.lastStatus || {};
+  const drift = status.clock_offset_seconds;
+  const limits = status.installation || {};
+  if (typeof drift === "number") {
+    rows.push([
+      "Klok van de hub",
+      `${drift.toFixed(0)} sec achter (grens ${(limits.clock_limit_seconds ?? 40).toFixed(0)} sec)`,
+    ]);
+  }
   rows.forEach(([key, value]) => {
     const row = el("tr");
     row.append(el("td", null, key), el("td", null, String(value)));
@@ -614,6 +728,12 @@ async function loadDiagnostics() {
   });
   summary.append(table);
 
+  if (typeof drift === "number" && drift >= (limits.clock_warn_seconds ?? 25)) {
+    summary.append(banner("warn",
+      `De klok van de hub loopt ${drift.toFixed(0)} seconden achter. Vanaf ` +
+      `${(limits.clock_limit_seconds ?? 40).toFixed(0)} seconden weigert de centrale elk ` +
+      "bericht van de hub. Zet de tijd van de hub gelijk in de Ajax-app of herstart hem."));
+  }
   if (counters.error_account) {
     summary.append(banner("warn",
       "Er zijn berichten geweigerd op het objectnummer. Controleer of het " +
@@ -707,6 +827,7 @@ function setConnection(text, cls) {
 async function refreshStatus() {
   const status = await api("/api/status");
   state.lastStatus = status;
+  renderSysline(status);
   renderOverall(status);
   renderTiles(status);
   renderBanners(status);
@@ -725,6 +846,12 @@ async function start() {
 }
 
 (async () => {
+  let saved = null;
+  try { saved = localStorage.getItem(THEME_KEY); } catch { /* privémodus */ }
+  applyTheme(saved || "dark");
+  $("#theme").addEventListener("click", toggleTheme);
+  startClock();
+
   const session = await (await fetch("/api/session", { credentials: "same-origin" })).json();
   if (session.authenticated) {
     showApp();

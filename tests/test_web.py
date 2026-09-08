@@ -173,6 +173,37 @@ async def test_datumfilter_en_csv_export(context: WebContext) -> None:
         assert ";BA;Inbraakalarm;Voordeur;" in lines[1]
 
 
+async def test_pdf_rapport(context: WebContext) -> None:
+    """Het rapport moet een echte PDF zijn, met alleen de gevraagde periode."""
+    from datetime import UTC, datetime
+
+    await context.db.store_event(
+        _alarm(code="BA", received_at=datetime(2026, 1, 10, 12, 0, tzinfo=UTC))
+    )
+    await context.db.store_event(
+        _alarm(
+            code="FA",
+            category="fire",
+            title="Brandalarm",
+            received_at=datetime(2026, 3, 5, 12, 0, tzinfo=UTC),
+        )
+    )
+
+    async with await _client(context) as client:
+        await client.post("/api/login", json={"username": "admin", "password": PASSWORD})
+
+        response = await client.get("/api/events.pdf", params={"until": "2026-02-01"})
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/pdf"
+        assert "logboek-" in response.headers["content-disposition"]
+        # Een PDF begint met %PDF- en eindigt met de EOF-markering; daartussen
+        # hoort het objectnummer te staan, want dat maakt het een rapport over
+        # deze installatie en niet zomaar een lijstje.
+        assert response.content.startswith(b"%PDF-")
+        assert b"%%EOF" in response.content[-1024:]
+        assert len(response.content) > 500
+
+
 async def test_bevestigen_stopt_de_escalatie(context: WebContext) -> None:
     alarm = _alarm()
     await context.db.store_event(alarm)
