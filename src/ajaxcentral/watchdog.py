@@ -18,7 +18,7 @@ import asyncio
 import logging
 from datetime import datetime
 
-from .config import Config
+from .config import HUB_CLOCK_LIMIT_SECONDS, Config
 from .db import Database
 from .models import AlarmEvent, utcnow
 from .normalize import internal_event
@@ -27,6 +27,14 @@ from .state import SystemState
 from .tasks import cancel_task
 
 _LOGGER = logging.getLogger(__name__)
+
+#: Hoe vaak een wegdrijvende hubklok opnieuw gemeld wordt zolang hij niet is
+#: rechtgezet. Dagelijks: vaker is zeuren, minder vaak is het vergeten.
+_CLOCK_REPEAT_SECONDS = 24 * 3600
+
+#: Zoveel seconden onder de drempel moet de klok zakken voordat we hem hersteld
+#: noemen. Zonder die marge wipt de melding heen en weer rond de grens.
+_CLOCK_HYSTERESIS = 5.0
 
 
 class Watchdog:
@@ -57,6 +65,9 @@ class Watchdog:
         self._last_report: AlarmEvent | None = None
         self._last_report_at: datetime | None = None
         self._repeats = 0
+        #: Wanneer we voor het laatst over de klok van de hub gewaarschuwd
+        #: hebben. None = de klok liep bij de laatste controle gelijk.
+        self._clock_reported_at: datetime | None = None
 
     @property
     def threshold_seconds(self) -> float:
@@ -90,6 +101,7 @@ class Watchdog:
 
     async def check(self) -> None:
         """Eén controleronde. Apart aanroepbaar, zodat de test niet hoeft te wachten."""
+        self._check_clock()
         stale = self._state.is_stale(self.threshold_seconds)
 
         if stale and not self._offline_reported:
@@ -139,6 +151,54 @@ class Watchdog:
                         if seconds is not None
                         else "weer contact"
                     ),
+                )
+            )
+
+    def _check_clock(self) -> None:
+        """Waarschuw voordat de klok van de hub de centrale doof maakt.
+
+        Een hub die zijn tijd niet bijhoudt loopt elke dag een paar seconden
+        verder achter. Zolang dat binnen de marge van het protocol blijft merkt
+        niemand er iets van; daarboven wordt élk bericht geweigerd. De centrale
+        slaat dan wel alarm omdat de hub "stil" is, maar dan ben je al doof.
+
+        Daarom melden we het als storing zodra de afwijking richting de grens
+        loopt, met het aantal seconden erbij: dan kun je de klok van de hub
+        gelijkzetten voordat het zover is. Zolang het niet opgelost is wordt de
+        melding dagelijks herhaald — één bericht dat je in de auto wegveegt,
+        mag niet het enige zijn dat je erover hoort.
+        """
+        threshold = self._config.sia.clock_warn_seconds
+        offset = self._state.clock_offset_seconds
+        if threshold <= 0 or offset is None:
+            return
+
+        if offset >= threshold:
+            if self._clock_reported_at is not None and (
+                (utcnow() - self._clock_reported_at).total_seconds() < _CLOCK_REPEAT_SECONDS
+            ):
+                return
+            self._clock_reported_at = utcnow()
+            detail = (
+                f"de klok van de hub loopt {offset:.0f} seconden achter; "
+                f"vanaf {HUB_CLOCK_LIMIT_SECONDS:.0f} seconden weigert de centrale "
+                "elk bericht van de hub. Zet de tijd van de hub gelijk in de Ajax-app "
+                "of herstart hem."
+            )
+            _LOGGER.error("Klok van de hub loopt uit de pas: %s", detail)
+            self._pipeline.submit(internal_event("CLOCKOFF", self._config, message=detail))
+            return
+
+        # Marge terug omlaag: pas herstellen als het echt weer goed is, anders
+        # wipt de melding heen en weer rond de drempel.
+        if self._clock_reported_at is not None and offset < threshold - _CLOCK_HYSTERESIS:
+            self._clock_reported_at = None
+            _LOGGER.info("Klok van de hub loopt weer gelijk (%.0f s)", offset)
+            self._pipeline.submit(
+                internal_event(
+                    "CLOCKOK",
+                    self._config,
+                    message=f"verschil terug op {offset:.0f} seconden",
                 )
             )
 

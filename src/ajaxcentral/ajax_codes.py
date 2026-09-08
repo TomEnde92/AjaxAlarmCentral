@@ -321,9 +321,17 @@ INTERNAL_CODES: dict[str, tuple[str, str, str]] = {
     "SELFTEST": (CATEGORY_TEST, "info", "Zelftest van de belketen"),
     "DBFAIL": (CATEGORY_SYSTEM, "trouble", "Opslag van events mislukt"),
     "DBOK": (CATEGORY_SYSTEM, "restore", "Opslag van events hersteld"),
+    "CLOCKOFF": (CATEGORY_SYSTEM, "trouble", "Klok van de hub loopt achter"),
+    "CLOCKOK": (CATEGORY_SYSTEM, "restore", "Klok van de hub loopt weer gelijk"),
 }
 
 _INTERNAL_DESCRIPTIONS = {
+    "CLOCKOFF": (
+        "De hub zet een tijdstip in elk bericht en dat loopt achter op de klok "
+        "van de centrale. Boven de grens van het SIA-protocol wordt elk bericht "
+        "geweigerd; de centrale is dan doof zonder dat er iets veranderd is."
+    ),
+    "CLOCKOK": ("Het tijdstip in de berichten van de hub ligt weer binnen de marge."),
     "HUBOFF": (
         "De hub heeft langer dan de ingestelde drempel niets gestuurd. Dat kan "
         "stroomuitval, een verbroken netwerkverbinding of sabotage zijn."

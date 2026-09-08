@@ -81,6 +81,10 @@ class SystemState:
         self.troubles: dict[str, Trouble] = {}
         self.open_alarms: int = 0
         self.last_alarm: AlarmEvent | None = None
+        #: Hoeveel seconden de klok van de hub achterloopt op die van de
+        #: centrale, afgevlakt over de laatste berichten. Loopt langzaam weg
+        #: bij een hub die zijn tijd niet bijhoudt; zie de watchdog.
+        self.clock_offset_seconds: float | None = None
         self.started_at: datetime = utcnow()
 
         for partition_id, name in config.partitions.items():
@@ -109,6 +113,7 @@ class SystemState:
         """Werk de status bij op basis van één event."""
         if alarm.source == "hub":
             self.note_contact(alarm.received_at)
+            self._note_clock(alarm)
 
         if alarm.code in ARM_CODES or alarm.code in DISARM_CODES:
             self._apply_arming(alarm, armed=alarm.code in ARM_CODES)
@@ -129,7 +134,40 @@ class SystemState:
         if alarm.severity == "alarm":
             self.last_alarm = alarm
 
+    def _note_clock(self, alarm: AlarmEvent) -> None:
+        """Houd bij hoever de klok van de hub achterloopt.
+
+        Het verschil tussen het tijdstip ín het bericht en het moment van
+        ontvangst is normaal een fractie van een seconde. Loopt het op, dan
+        loopt de klok van de hub weg — en die grens is hard: boven de marge van
+        het protocol weigert de centrale elk bericht.
+
+        Afgevlakt, want één bericht dat toevallig lang onderweg was zegt niets;
+        het gaat om de trend. Stuurt de hub geen tijdstip mee, dan vult
+        normalize() de ontvangsttijd in en komt het verschil vanzelf op nul —
+        precies goed, want dan valt er ook niets te bewaken.
+        """
+        offset = (as_utc(alarm.received_at) - as_utc(alarm.event_at)).total_seconds()
+        if self.clock_offset_seconds is None:
+            self.clock_offset_seconds = offset
+        else:
+            self.clock_offset_seconds += 0.2 * (offset - self.clock_offset_seconds)
+
     def _apply_arming(self, alarm: AlarmEvent, *, armed: bool) -> None:
+        """Zet de betrokken groepen aan of uit.
+
+        Welke groepen dat zijn, staat in de code en niet in het groepsveld. Een
+        CL ("System armed, normal") of OP ("Account was disarmed") gaat over de
+        hele installatie: het nummer erin is de gebruiker, en het groepsveld
+        zet de hub daarbij gewoon op 1. Alleen de gebiedscodes uit
+        AREA_ARM_CODES — de deel- en nachtinschakeling voorop — betreffen één
+        groep.
+
+        Zonder dat onderscheid blijft de verdieping op het dashboard
+        "Uitgeschakeld" heten terwijl het hele huis is ingeschakeld, en dat is
+        precies het soort halve waarheid waar je 's nachts niet op wilt
+        vertrouwen.
+        """
         partition_id = alarm.partition_id or "1"
         if alarm.code in AREA_ARM_CODES:
             targets = [partition_id]
@@ -164,20 +202,6 @@ class SystemState:
         """Heeft de hub te lang gezwegen?
 
         Voordat er ooit contact is geweest rekenen we vanaf de starttijd, zodat
-        """Zet de betrokken groepen aan of uit.
-
-        Welke groepen dat zijn, staat in de code en niet in het groepsveld. Een
-        CL ("System armed, normal") of OP ("Account was disarmed") gaat over de
-        hele installatie: het nummer erin is de gebruiker, en het groepsveld
-        zet de hub daarbij gewoon op 1. Alleen de gebiedscodes uit
-        AREA_ARM_CODES — de deel- en nachtinschakeling voorop — betreffen één
-        groep.
-
-        Zonder dat onderscheid blijft de verdieping op het dashboard
-        "Uitgeschakeld" heten terwijl het hele huis is ingeschakeld, en dat is
-        precies het soort halve waarheid waar je 's nachts niet op wilt
-        vertrouwen.
-        """
         een centrale die naast een uitgeschakelde hub opstart óók alarm slaat in
         plaats van eeuwig te wachten op een eerste bericht.
         """
@@ -191,6 +215,7 @@ class SystemState:
             "seconds_since_contact": self.seconds_since_contact,
             "partitions": [p.to_dict() for p in self.partitions.values()],
             "any_armed": any(p.armed for p in self.partitions.values()),
+            "clock_offset_seconds": self.clock_offset_seconds,
             "troubles": [t.to_dict() for t in self.troubles.values()],
             "open_alarms": self.open_alarms,
             "last_alarm": self.last_alarm.to_dict() if self.last_alarm else None,

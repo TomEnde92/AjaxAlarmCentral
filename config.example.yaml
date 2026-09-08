@@ -30,6 +30,13 @@ sia:
   # 0 = alleen de eerste melding.
   offline_repeat_seconds: 900
 
+  # De hub zet een tijdstip in elk bericht. Loopt die klok achter op deze Pi,
+  # dan weigert de centrale het bericht zodra het verschil boven de 40 seconden
+  # komt — en dan hoort ze niets meer, zonder dat er iets veranderd is. Bij dit
+  # aantal seconden verschil komt er een storingsmelding, zodat je de tijd van
+  # de hub kunt gelijkzetten voordat het zover is. 0 = geen bewaking.
+  clock_warn_seconds: 25
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Namen. Zonder deze tabel toont het dashboard "apparaat 12" in plaats van
 # "Voordeur". De sleutels zijn de ID's zoals ze in het logboek verschijnen —

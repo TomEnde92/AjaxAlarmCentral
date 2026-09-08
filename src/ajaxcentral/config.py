@@ -48,6 +48,13 @@ ENV_PREFIX = "AJAXCENTRAL_"
 DEVICE_TYPES: tuple[str, ...] = ("fire", "burglary", "other")
 
 
+#: Vanaf hier weigert pysiaalarm een bericht omdat het tijdstip te oud is
+#: (``allowed_timeband``, standaard 40 seconden in het verleden). Een hub
+#: waarvan de klok wegloopt, praat op een dag dus tegen dovemansoren — vandaar
+#: de waarschuwing ruim daarvoor.
+HUB_CLOCK_LIMIT_SECONDS = 40.0
+
+
 class SiaConfig(BaseModel):
     host: str = "0.0.0.0"
     port: int = 10000
@@ -59,6 +66,11 @@ class SiaConfig(BaseModel):
     #: Zolang de hub weg blijft en het HUBOFF-alarm niet bevestigd is, wordt
     #: het om de zoveel seconden opnieuw gemeld (nieuwe belronde). 0 = uit.
     offline_repeat_seconds: int = 900
+    #: Waarschuw als de klok van de hub verder achterloopt dan dit. Zie
+    #: HUB_CLOCK_LIMIT_SECONDS hieronder: boven die grens weigert de centrale
+    #: elk bericht, en dan is ze doof zonder dat iemand iets veranderd heeft.
+    #: 0 = geen bewaking.
+    clock_warn_seconds: float = 25.0
 
     @property
     def offline_after_seconds(self) -> float:

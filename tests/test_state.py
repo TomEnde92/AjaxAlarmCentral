@@ -102,6 +102,60 @@ def test_stilte_telt_ook_zonder_ooit_contact(config: Config) -> None:
     assert state.is_stale(10)
 
 
+def test_klokverschil_van_de_hub_wordt_bijgehouden(config: Config) -> None:
+    """Het verschil tussen hubtijd en ontvangst is de maat voor de klok."""
+    state = SystemState(config)
+    moment = utcnow()
+    for _ in range(20):
+        state.apply(
+            _event(
+                "RP",
+                "heartbeat",
+                "test",
+                source="hub",
+                event_at=moment - timedelta(seconds=30),
+                received_at=moment,
+            )
+        )
+    assert state.clock_offset_seconds is not None
+    assert 29 < state.clock_offset_seconds < 31
+
+
+async def test_watchdog_waarschuwt_voor_de_wegdrijvende_hubklok(
+    config: Config, db: Database
+) -> None:
+    """Boven de protocolgrens weigert de centrale alles; dat hoort ze te zien aankomen."""
+    from ajaxcentral.bus import EventBus
+
+    bus: EventBus[AlarmEvent] = EventBus()
+    state = SystemState(config)
+    pipeline = EventPipeline(config, db, bus, state)
+    watchdog = Watchdog(config, state, pipeline)
+    state.note_contact()
+
+    # Ruim binnen de marge: niets aan de hand.
+    state.clock_offset_seconds = 3.0
+    await watchdog.check()
+    assert pipeline._queue.qsize() == 0
+
+    # Over de drempel: één storing, en niet elke ronde opnieuw.
+    state.clock_offset_seconds = config.sia.clock_warn_seconds + 1
+    await watchdog.check()
+    await watchdog.check()
+    assert pipeline._queue.qsize() == 1
+    warning = pipeline._queue.get_nowait()
+    assert warning.code == "CLOCKOFF"
+    assert warning.severity == "trouble"
+    assert "40" in (warning.message or "")
+
+    # Klok rechtgezet: herstelmelding, en daarna weer stil.
+    state.clock_offset_seconds = 1.0
+    await watchdog.check()
+    await watchdog.check()
+    assert pipeline._queue.qsize() == 1
+    assert pipeline._queue.get_nowait().code == "CLOCKOK"
+
+
 async def test_watchdog_meldt_uitval_en_herstel(config: Config, db: Database) -> None:
     from ajaxcentral.bus import EventBus
 
